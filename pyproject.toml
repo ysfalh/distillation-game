@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antidistillation-clean"
+version = "0.1.0"
+description = "Minimal clean reproduction repo for antidistillation experiments"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "datasets>=2.20.0",
+  "latex2sympy2-extended>=1.10.1",
+  "math-verify>=0.7.0",
+  "pydantic>=2.7.0",
+  "PyYAML>=6.0.1",
+  "rich>=13.7.1",
+  "torch>=2.3.0",
+  "transformers>=4.44.0",
+  "trl>=0.10.1",
+  "peft>=0.12.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

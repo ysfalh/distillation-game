@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="27232cc2-f385-4b9d-be36-09a41d790ca2" name="LFS@skampere3.stanford.edu">
+        <fileTransfer rootFolder="/lfs/skampere3/0/yallouah/" accessType="SFTP" host="skampere3.stanford.edu" port="22" sshConfigId="7a7feec1-7a25-4c6b-9549-39441242d194" sshConfig="yallouah@skampere3.stanford.edu:22">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" isUseRsync="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
