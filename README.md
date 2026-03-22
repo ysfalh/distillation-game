@@ -68,7 +68,7 @@ The clean pipeline now does the following:
 From the repo root:
 
 ```bash
-PYTHONPATH=src python3 scripts/run_pipeline.py --config configs/gsm8k_savani_small.yaml
+PYTHONPATH=src python3 scripts/run_pipeline.py --config configs/gsm8k_small.yaml
 ```
 
 Main output files:

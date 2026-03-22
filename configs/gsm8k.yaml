@@ -1,5 +1,5 @@
 run:
-  seed: 42
+  seed: 123
   output_dir: outputs
   run_name: gsm8k_savani
   save_config_snapshot: true
@@ -29,34 +29,34 @@ generation:
   answer_force: true
   answer_force_suffix: "\n\n**Final Answer**\n\\[\\boxed{"
   answer_force_max_new_tokens: 32
-  batch_size: 16
+  batch_size: 240
   greedy: false
 
 teachers:
-  standard: true
-  antidistillation_lams: [0.04]
-  poe_gammas: [0.65]
-  strategic_beta_teachers: [0]
+  standard: false
+  antidistillation_lams: [0.05]
+  poe_gammas: []
+  strategic_beta_teachers: []
 
 distill:
   student_modes: ["naive", "strategic_fd"]
-  beta_s_values: [1.0]
+  beta_s_values: [0.5]
   penalty_transform: exp
   lr: 5e-4
   weight_decay: 0.1
   max_grad_norm: 1.0
   warmup_ratio: 0.03
   lr_scheduler_type: cosine
-  num_epochs: 1
-  per_device_train_batch_size: 4
+  num_epochs: 3
+  per_device_train_batch_size: 6
   gradient_accumulation_steps: 4
   max_length: 2048
   lora_r: 128
   lora_alpha: 128
   lora_dropout: 0.0
   save_final_model: false
-  holdout_grad_batch_size: 4
-  trace_weights_fd_batch_size: 8
+  holdout_grad_batch_size: 6
+  trace_weights_fd_batch_size: 12
 
 artifacts:
   save_full_text_traces: false

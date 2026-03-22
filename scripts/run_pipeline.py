@@ -131,7 +131,8 @@ def main() -> None:
     teacher_train_sources: dict[str, list[dict]] = {}
     teacher_holdout_source: list[dict] | None = None
 
-    for split_name in ("holdout", "train", "test"):
+    standard_splits = ["holdout"] + (["train", "test"] if cfg.teachers.standard else [])
+    for split_name in standard_splits:
         set_seed(cfg.run.seed)
         stage_label = f"Teacher generation | method=standard | split={split_name}"
         stage = _log_stage_start(stage_label)
@@ -144,10 +145,13 @@ def main() -> None:
             model=teacher_model,
             tokenizer=teacher_tokenizer,
         )
-        write_json(compact, out_dir / "teacher" / f"{split_name}_standard.json")
+        output_stem = f"{split_name}_standard"
+        if split_name == "holdout" and not cfg.teachers.standard:
+            output_stem = f"{split_name}_standard_internal"
+        write_json(compact, out_dir / "teacher" / f"{output_stem}.json")
         write_markdown_examples(
             compact[: cfg.artifacts.save_inspection_samples],
-            out_dir / "teacher" / f"{split_name}_standard.md",
+            out_dir / "teacher" / f"{output_stem}.md",
             title=f"{split_name} standard",
         )
         if split_name == "holdout":
@@ -155,11 +159,10 @@ def main() -> None:
         elif split_name == "train":
             teacher_train_sources["teacher_standard"] = inspection
         acc = sum(1 for row in compact if row["correct"]) / max(len(compact), 1)
-        _log_stage_end(
-            stage_label,
-            stage,
-            extra=f"n={len(compact)}, accuracy={acc:.4f}",
-        )
+        extra = f"n={len(compact)}, accuracy={acc:.4f}"
+        if split_name == "holdout" and not cfg.teachers.standard:
+            extra += ", internal_only=true"
+        _log_stage_end(stage_label, stage, extra=extra)
         if split_name != "holdout":
             teacher_rows.append({"train_source": "-", "eval_model": f"teacher_standard_{split_name}", "accuracy": acc, "notes": split_name})
 
@@ -255,8 +258,9 @@ def main() -> None:
 
     student_rows: list[dict] = []
     for teacher_source_name, teacher_train_traces in teacher_train_sources.items():
-        for beta_s in cfg.distill.beta_s_values:
-            for mode in cfg.distill.student_modes:
+        for mode in cfg.distill.student_modes:
+            beta_s_values = cfg.distill.beta_s_values if mode == "strategic_fd" else [1.0]
+            for beta_s in beta_s_values:
                 set_seed(cfg.run.seed)
                 stage_label = f"Student training | source={teacher_source_name} | mode={mode} | beta_s={beta_s}"
                 stage = _log_stage_start(stage_label)
@@ -300,9 +304,10 @@ def main() -> None:
                     stage,
                     extra=f"n={len(compact)}, accuracy={acc:.4f}",
                 )
-                notes = f"beta_s={beta_s}"
+                notes = "" if mode == "naive" else f"beta_s={beta_s}"
                 if stats:
-                    notes += f", mean_a={stats.get('mean_a', 0.0):.4f}, frac_mass_top20={stats.get('frac_mass_top20', 0.0):.4f}"
+                    stats_note = f"mean_a={stats.get('mean_a', 0.0):.4f}, frac_mass_top20={stats.get('frac_mass_top20', 0.0):.4f}"
+                    notes = f"{notes}, {stats_note}" if notes else stats_note
                 student_rows.append({"train_source": teacher_source_name, "eval_model": f"student_{mode}", "accuracy": acc, "notes": notes})
                 write_json(
                     inspection[: cfg.artifacts.save_inspection_samples],
