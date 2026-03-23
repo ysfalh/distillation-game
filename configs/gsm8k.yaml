@@ -29,7 +29,8 @@ generation:
   answer_force: true
   answer_force_suffix: "\n\n**Final Answer**\n\\[\\boxed{"
   answer_force_max_new_tokens: 32
-  batch_size: 240
+  #batch_size: 240 it was the yousef's batch size
+  batch_size: 128
   greedy: false
 
 teachers:
