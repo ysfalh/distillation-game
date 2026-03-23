@@ -15,7 +15,7 @@ class RunConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
-    dataset_name: Literal["gsm8k"] = "gsm8k"
+    dataset_name: Literal["gsm8k", "math"] = "gsm8k"
     train_size: int = 512
     holdout_size: int = 128
     test_size: int = 256

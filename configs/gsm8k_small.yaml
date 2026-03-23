@@ -1,7 +1,7 @@
 run:
   seed: 42
   output_dir: outputs
-  run_name: gsm8k_savani_small
+  run_name: gsm8k_small
   save_config_snapshot: true
 
 data:

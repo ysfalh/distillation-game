@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
         _hf_disable_progress_bar = None  # type: ignore[assignment]
 
 from clean_sweep.config import FullConfig
-from clean_sweep.data import format_prompt_gsm8k, load_gsm8k_splits
+from clean_sweep.data import format_prompt_gsm8k, format_prompt_math, load_dataset_splits
 from clean_sweep.generation import generate_teacher_traces, load_model_and_tokenizer
 from clean_sweep.summary import build_results_report
 from clean_sweep.train import run_distill
@@ -76,15 +76,17 @@ def main() -> None:
     if cfg.run.save_config_snapshot:
         cfg.to_yaml(out_dir / "config_snapshot.yaml")
 
-    stage = _log_stage_start("Loading GSM8K splits")
-    splits = load_gsm8k_splits(
+    stage = _log_stage_start(f"Loading {cfg.data.dataset_name.upper()} splits")
+    splits = load_dataset_splits(
+        cfg.data.dataset_name,
         seed=cfg.run.seed,
         train_size=cfg.data.train_size,
         holdout_size=cfg.data.holdout_size,
         test_size=cfg.data.test_size,
     )
+    format_prompt = format_prompt_gsm8k if cfg.data.dataset_name == "gsm8k" else format_prompt_math
     _log_stage_end(
-        "Loading GSM8K splits",
+        f"Loading {cfg.data.dataset_name.upper()} splits",
         stage,
         extra=f"train={len(splits['train'])}, holdout={len(splits['holdout'])}, test={len(splits['test'])}",
     )
@@ -139,7 +141,7 @@ def main() -> None:
         compact, inspection = generate_teacher_traces(
             cfg=cfg,
             dataset=splits[split_name],
-            format_prompt=format_prompt_gsm8k,
+            format_prompt=format_prompt,
             method_name="standard",
             device=device,
             model=teacher_model,
@@ -199,7 +201,7 @@ def main() -> None:
             compact, inspection = generate_teacher_traces(
                 cfg=cfg,
                 dataset=splits[split_name],
-                format_prompt=format_prompt_gsm8k,
+                format_prompt=format_prompt,
                 method_name="antidistillation",
                 device=device,
                 model=teacher_model,
@@ -232,7 +234,7 @@ def main() -> None:
             compact, inspection = generate_teacher_traces(
                 cfg=cfg,
                 dataset=splits[split_name],
-                format_prompt=format_prompt_gsm8k,
+                format_prompt=format_prompt,
                 method_name="poe",
                 device=device,
                 model=teacher_model,
@@ -285,7 +287,7 @@ def main() -> None:
                 compact, inspection = generate_teacher_traces(
                     cfg=cfg,
                     dataset=splits["test"],
-                    format_prompt=format_prompt_gsm8k,
+                    format_prompt=format_prompt,
                     method_name="standard",
                     device=device,
                     model=student_model,

@@ -41,7 +41,10 @@ The first milestone is:
 ## Current layout
 
 - `scripts/run_pipeline.py`: end-to-end teacher + student pipeline
-- `configs/gsm8k_savani_small.yaml`: reduced-size config for iteration
+- `configs/gsm8k_small.yaml`: reduced-size GSM8K config for iteration
+- `configs/gsm8k.yaml`: main GSM8K config
+- `configs/math_small.yaml`: reduced-size MATH config for iteration
+- `configs/math.yaml`: main MATH config
 - `src/clean_sweep/config.py`: small typed config schema
 - `src/clean_sweep/data/`: split materialization and prompt formatting
 - `src/clean_sweep/generation/`: standard, antidistillation, and PoE decoding
