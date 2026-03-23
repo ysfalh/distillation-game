@@ -1,14 +1,14 @@
 run:
-  seed: 42
+  seed: 123
   output_dir: outputs
-  run_name: gsm8k_small
+  run_name: math
   save_config_snapshot: true
 
 data:
-  dataset_name: gsm8k
-  train_size: 51
-  holdout_size: 13
-  test_size: 26
+  dataset_name: math
+  train_size: 2000
+  holdout_size: 1000
+  test_size: 1000
   materialize_splits: true
 
 model:
@@ -17,7 +17,7 @@ model:
   student: meta-llama/Llama-3.2-3B
   tokenizer: null
   student_tokenizer: meta-llama/Llama-3.2-3B-Instruct
-  attn_implementation: sdpa
+  attn_implementation: flash_attention_2
   torch_dtype: bfloat16
 
 generation:
@@ -29,36 +29,36 @@ generation:
   answer_force: true
   answer_force_suffix: "\n\n**Final Answer**\n\\[\\boxed{"
   answer_force_max_new_tokens: 32
-  batch_size: 16
+  batch_size: 64
   greedy: false
 
 teachers:
-  standard: true
-  antidistillation_lams: [0.06]
-  poe_gammas: [0.6]
-  strategic_beta_teachers: [0]
+  standard: false
+  antidistillation_lams: [0.05,0.06,0.07,0.08,0.09,0.1]
+  poe_gammas: []
+  strategic_beta_teachers: []
 
 distill:
   student_modes: ["naive", "strategic_fd"]
-  beta_s_values: [1.0]
+  beta_s_values: [0.5]
   penalty_transform: exp
   lr: 5e-4
   weight_decay: 0.1
   max_grad_norm: 1.0
   warmup_ratio: 0.03
   lr_scheduler_type: cosine
-  num_epochs: 1
-  per_device_train_batch_size: 2
-  gradient_accumulation_steps: 8
+  num_epochs: 3
+  per_device_train_batch_size: 6
+  gradient_accumulation_steps: 4
   max_length: 2048
   lora_r: 128
   lora_alpha: 128
   lora_dropout: 0.0
   save_final_model: false
-  holdout_grad_batch_size: 2
-  trace_weights_fd_batch_size: 8
+  holdout_grad_batch_size: 6
+  trace_weights_fd_batch_size: 12
 
 artifacts:
   save_full_text_traces: false
   save_prompt_dictionary: true
-  save_inspection_samples: 16
+  save_inspection_samples: 5
