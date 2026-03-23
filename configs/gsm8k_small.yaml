@@ -17,7 +17,7 @@ model:
   student: meta-llama/Llama-3.2-3B
   tokenizer: null
   student_tokenizer: meta-llama/Llama-3.2-3B-Instruct
-  attn_implementation: flash_attention_2
+  attn_implementation: sdpa
   torch_dtype: bfloat16
 
 generation:
