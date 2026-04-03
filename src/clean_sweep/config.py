@@ -15,7 +15,7 @@ class RunConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
-    dataset_name: Literal["gsm8k", "math"] = "gsm8k"
+    dataset_name: Literal["gsm8k", "gsm_hard", "svamp", "math"] = "gsm8k"
     train_size: int = 512
     holdout_size: int = 128
     test_size: int = 256
@@ -49,7 +49,7 @@ class TeacherSweepConfig(BaseModel):
     standard: bool = True
     antidistillation_lams: list[float] = Field(default_factory=list)
     poe_gammas: list[float] = Field(default_factory=list)
-    strategic_beta_teachers: list[float] = Field(default_factory=lambda: [1.0])
+    strategic_beta_teachers: list[float] = Field(default_factory=list)
 
 
 class DistillConfig(BaseModel):
