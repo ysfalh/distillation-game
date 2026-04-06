@@ -144,9 +144,18 @@ def main() -> None:
     test_data = splits["test"]
 
     # ── Load and split LLM traces ─────────────────────────────────────
-    trace_path = Path(args.trace_dir) / f"{args.trace_name}.json"
+    trace_dir = Path(args.trace_dir)
+    trace_path = trace_dir / f"{args.trace_name}.jsonl"
+    if not trace_path.exists():
+        trace_path = trace_dir / f"{args.trace_name}.json"
     with open(trace_path) as f:
-        all_traces = json.load(f)
+        if trace_path.suffix == ".jsonl":
+            all_traces = [json.loads(line) for line in f if line.strip()]
+        else:
+            all_traces = json.load(f)
+    for t in all_traces:
+        if "question" in t and "problem" not in t:
+            t["problem"] = t["question"]
     trace_train, trace_holdout = _split_traces(
         all_traces, cfg.data.train_size, cfg.data.holdout_size, cfg.run.seed,
     )
