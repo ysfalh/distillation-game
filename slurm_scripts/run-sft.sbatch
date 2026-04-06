@@ -20,6 +20,6 @@ SEED=${SEEDS[$SLURM_ARRAY_TASK_ID]}
 
 echo "=== Array task $SLURM_ARRAY_TASK_ID | Seed: $SEED ==="
 python scripts/run_real_trace.py \
-    --config configs/gsm8k_small.yaml \
-    --trace-name gemini_gsm8k_traces \
+    --config configs/math_small.yaml \
+    --trace-name claude_math_traces \
     --seed $SEED
