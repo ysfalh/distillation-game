@@ -13,6 +13,7 @@ mkdir -p logs
 
 export HF_TOKEN="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"
 export HF_HOME="/scratch/mhaghifam/hf_cache"
+export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
 
 SEEDS=(42 123 456)
 SEED=${SEEDS[$SLURM_ARRAY_TASK_ID]}
