@@ -7,6 +7,8 @@ build/
 
 outputs/
 artifacts/
+math_output/
+gsm8k_output/
 
 *.pyc
 *.pyo
