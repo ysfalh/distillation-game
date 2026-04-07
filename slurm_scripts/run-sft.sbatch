@@ -6,7 +6,7 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-2
+#SBATCH --array=0-8
 
 source $HOME/nlphw/my_project.env
 mkdir -p logs
@@ -16,10 +16,16 @@ export HF_HOME="/scratch/mhaghifam/hf_cache"
 export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
 
 SEEDS=(42 123 456)
-SEED=${SEEDS[$SLURM_ARRAY_TASK_ID]}
+TRACES=("claude_math_traces" "openai_math_traces" "gemini_math_traces")
 
-echo "=== Array task $SLURM_ARRAY_TASK_ID | Seed: $SEED ==="
+SEED_IDX=$((SLURM_ARRAY_TASK_ID / 3))
+TRACE_IDX=$((SLURM_ARRAY_TASK_ID % 3))
+
+SEED=${SEEDS[$SEED_IDX]}
+TRACE=${TRACES[$TRACE_IDX]}
+
+echo "=== Array task $SLURM_ARRAY_TASK_ID | Seed: $SEED | Trace: $TRACE ==="
 python scripts/run_real_trace.py \
-    --config configs/math_small.yaml \
-    --trace-name claude_math_traces \
+    --config configs/math.yaml \
+    --trace-name $TRACE \
     --seed $SEED
