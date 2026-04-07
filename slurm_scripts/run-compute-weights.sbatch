@@ -29,10 +29,14 @@ LABEL="${LABELS[$TEACHER_IDX]}"
 BETA_S="${BETAS[$BETA_IDX]}"
 OUT_NAME="weights_${LABEL}_beta${BETA_S}.json"
 
+# Patch flash_attention_2 → sdpa in a per-task temp config (avoids race)
+TMP_CFG="/tmp/config_weights_${SLURM_ARRAY_TASK_ID}.yaml"
+sed 's/flash_attention_2/sdpa/' "${DATA_DIR}/config_snapshot.yaml" > "${TMP_CFG}"
+
 echo "=== Task ${SLURM_ARRAY_TASK_ID} | ${LABEL} | beta_s=${BETA_S} ==="
 
 python scripts/compute_weights.py \
-    --config  "${DATA_DIR}/config_snapshot.yaml" \
+    --config  "${TMP_CFG}" \
     --holdout "${DATA_DIR}/holdout_standard_internal.json" \
     --train   "${DATA_DIR}/${TRAIN_FILE}" \
     --beta-s  ${BETA_S} \
