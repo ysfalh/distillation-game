@@ -21,7 +21,7 @@ from src.clean_sweep.data.gsm8k import load_gsm8k_splits
 # ---------------------------------------------------------------------------
 # API keys — set these in your environment, never hardcode
 # ---------------------------------------------------------------------------
-api_key_gemini = 'fill-me'
+api_key_gemini = 'AIzaSyATpem4fvrfqLKeM5C92AAGkZcK2qSMa_4'
 api_key_openai = 'fill-me'
 api_key_claude = 'fill-me'
 
@@ -114,7 +114,7 @@ def generate_trace_llm(
     output_file: str,
     num_samples: int | None = None,
     flush_every: int = 10,
-    max_workers: int = 8,
+    max_workers: int = 4,
 ):
     """
     Generate reasoning traces using OpenAI, Gemini, or Claude.
@@ -263,8 +263,9 @@ if __name__ == "__main__":
         seed=math_cfg["run"]["seed"],
         train_size=math_cfg["data"]["train_size"],
         holdout_size=math_cfg["data"]["holdout_size"],
-        test_size=0,
+        test_size=1,
     )
+
     math_data = concatenate_datasets([math_splits["train"], math_splits["holdout"]])
 
     gsm8k_splits = load_gsm8k_splits(
@@ -275,11 +276,21 @@ if __name__ == "__main__":
     )
     gsm8k_data = concatenate_datasets([gsm8k_splits["train"], gsm8k_splits["holdout"]])
 
+    ##########################################################
+    #OpenAI on MATH
+    #generate_trace_llm("openai", "gpt-4o-mini", math_data, "math", "openai_math_traces.jsonl")
+
     # OpenAI on GSM8K
     # generate_trace_llm("openai", "gpt-4o-mini", gsm8k_data, "math", "openai_math_traces.jsonl")
 
     # Gemini on MATH
-    generate_trace_llm("gemini", "gemini-2.5-flash", gsm8k_data, "math", "gemini_math_traces.jsonl")
+    #
+    # Gemini on GSM8K
+    generate_trace_llm("gemini", "gemini-3-flash-preview", gsm8k_data, "gsm8k", "gemini_gsm8k_traces.jsonl")
+    generate_trace_llm("gemini", "gemini-3-flash-preview", math_data, "math", "gemini_math_traces.jsonl")
 
     # Claude on MATH
     # generate_trace_llm("claude", "claude-3-5-sonnet-20241022", math_data, "math", "claude_math_traces.jsonl")
+
+    # Claude on GSM8K
+    #generate_trace_llm("claude", "claude-3-5-sonnet-20241022", gsm8k_data, "gsm8k", "claude_gsm8k_traces.jsonl")

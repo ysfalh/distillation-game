@@ -6,7 +6,7 @@ the student — only computes g_s and the finite-difference advantage scores,
 using the same functions as the main pipeline (run_pipeline.py → distill.py).
 
 Output JSON: one object per training trace with fields
-    example_id, correct, raw_weight (advantage a_i), weight (transformed + normalised).
+    example_id, prompt, trace, correct, raw_weight (advantage a_i), weight (transformed + normalised).
 
 Example
 -------
@@ -127,6 +127,8 @@ def main() -> None:
     rows = [
         {
             "example_id": tr.get("example_id", f"train_{i}"),
+            "prompt":     tr.get("prompt"),
+            "trace":      tr.get("trace"),
             "correct":    tr.get("correct"),
             "raw_weight": raw_weights[i],
             "weight":     weights[i],

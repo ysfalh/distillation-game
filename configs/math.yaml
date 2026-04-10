@@ -6,9 +6,9 @@ run:
 
 data:
   dataset_name: math
-  train_size: 2000
-  holdout_size: 1000
-  test_size: 1000
+  train_size: 5000
+  holdout_size: 2500
+  test_size: 5000
   materialize_splits: true
 
 model:
