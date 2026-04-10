@@ -1,24 +1,6 @@
-"""
-Score reasoning traces using Prometheus 2 (absolute grading, 1-5).
-
-Input JSON format (one entry per example, flat list):
-[
-    {
-        "example_id": "train_0",
-        "method": "poe_gamma_0.7",
-        "prompt": "Rachel is twice as old as Rona ...",
-        "trace": "To solve this problem ...",
-        "extracted_answer": "12"
-    },
-    ...
-]
-
-Usage:
-    python trace-quality.py input.json output.json [--model MODEL]
-"""
-
 import os
-os.environ.setdefault("VLLM_ATTENTION_BACKEND", "TORCH_SDPA")
+os.environ["VLLM_ATTENTION_BACKEND"] = "TORCH_SDPA"
+os.environ["VLLM_USE_FLASHINFER"] = "0"
 
 import json
 import argparse
@@ -44,7 +26,7 @@ def score_traces(input_path: str, output_path: str, model_name: str):
     with open(input_path) as f:
         data = json.load(f)
 
-    model = VLLM(model=model_name)
+    model = VLLM(model=model_name, enforce_eager=True)
     judge = PrometheusEval(model=model, absolute_grade_template=ABSOLUTE_PROMPT)
 
     results = []
