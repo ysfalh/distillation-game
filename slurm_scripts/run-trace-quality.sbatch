@@ -9,6 +9,7 @@
 #SBATCH --array=0-1
 
 source $HOME/nlphw/my_project.env
+cd /share/project/haghifam-projects/strategic-distillation
 mkdir -p logs
 
 export HF_TOKEN="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"
