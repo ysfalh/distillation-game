@@ -1,5 +1,5 @@
 import os
-os.environ["VLLM_ATTENTION_BACKEND"] = "TORCH_SDPA"
+os.environ["VLLM_ATTENTION_BACKEND"] = "XFORMERS"
 os.environ["VLLM_USE_FLASHINFER"] = "0"
 
 import json
