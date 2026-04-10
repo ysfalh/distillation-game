@@ -9,6 +9,7 @@ outputs/
 artifacts/
 math_output/
 gsm8k_output/
+llm_traces_old/
 
 *.pyc
 *.pyo
