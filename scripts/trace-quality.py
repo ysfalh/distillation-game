@@ -17,6 +17,9 @@ Usage:
     python trace-quality.py input.json output.json [--model MODEL]
 """
 
+import os
+os.environ.setdefault("VLLM_ATTENTION_BACKEND", "TORCH_SDPA")
+
 import json
 import argparse
 from prometheus_eval.vllm import VLLM
