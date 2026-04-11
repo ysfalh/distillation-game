@@ -30,14 +30,14 @@ from prometheus_eval.prompts import ABSOLUTE_PROMPT, SCORE_RUBRIC_TEMPLATE
 
 RUBRIC = SCORE_RUBRIC_TEMPLATE.format(
     criteria=(
-        "How useful is this reasoning trace for a human trying to "
-        "understand the solution?"
+        "How well does this reasoning trace arrive at and justify its answer? "
+        "Judge the logical soundness of the reasoning more than its presentation style."
     ),
-    score1_description="The trace is confusing, disorganized, or obscures the reasoning.",
-    score2_description="The trace is hard to follow with significant gaps or unnecessary complexity.",
-    score3_description="The trace is adequate but could be clearer or more concise.",
-    score4_description="The trace is clear and easy to follow with minor issues.",
-    score5_description="The trace is exceptionally clear, well-organized, and immediately understandable.",
+    score1_description="The reasoning is incoherent or irrelevant to the problem.",
+    score2_description="The reasoning attempts the problem but has major logical errors or unsupported leaps.",
+    score3_description="The reasoning is mostly on track but has some unjustified or unclear steps.",
+    score4_description="The reasoning is sound with at most minor issues.",
+    score5_description="The reasoning is fully sound and every step is well-justified.",
 )
 
 
@@ -89,6 +89,7 @@ def score_traces(input_path: str, output_path: str, model_name: str, batch_size:
             results.append({
                 "example_id": item["example_id"],
                 "method": item.get("method", ""),
+                "trace": item.get("trace", ""),
                 "score": score,
                 "feedback": feedback,
             })
