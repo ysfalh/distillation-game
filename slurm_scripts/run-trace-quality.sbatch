@@ -10,23 +10,25 @@
 
 source /share/project/haghifam-projects/venv-low-memory/bin/activate
 cd /share/project/haghifam-projects/strategic-distillation
-mkdir -p logs math_output_small/analysis
+mkdir -p logs gsm8k_output_small/analysis math_output_small/analysis
 
 export HF_TOKEN="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"
 export HF_HOME="/scratch/mhaghifam/hf_cache"
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
 INPUTS=(
-  "math_output_small/train_poe_gamma_0.75.json"
-  "math_output_small/train_antidistillation_lam_0.08.json"
+  "gsm8k_output_small/train_standard.json"
+  "math_output_small/train_standard.json"
 )
-NAMES=("poe" "ads")
+OUTPUTS=(
+  "gsm8k_output_small/analysis/trace_quality_standard.json"
+  "math_output_small/analysis/trace_quality_standard.json"
+)
 
 INPUT=${INPUTS[$SLURM_ARRAY_TASK_ID]}
-NAME=${NAMES[$SLURM_ARRAY_TASK_ID]}
-OUTPUT="math_output_small/analysis/trace_quality_${NAME}.json"
+OUTPUT=${OUTPUTS[$SLURM_ARRAY_TASK_ID]}
 
-echo "=== Array task $SLURM_ARRAY_TASK_ID | ${NAME} ==="
+echo "=== Array task $SLURM_ARRAY_TASK_ID ==="
 echo "Input:  $INPUT"
 echo "Output: $OUTPUT"
 
