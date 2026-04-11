@@ -5,6 +5,7 @@ Usage:
     python trace_quality_plot.py [gsm8k | math]
 """
 
+import os
 import sys
 import json
 import numpy as np
@@ -29,13 +30,13 @@ DATASETS = {
         "standard": "gsm8k_output_small/analysis/trace_quality_standard.json",
         "poe": "gsm8k_output_small/analysis/trace_quality_poe.json",
         "ads": "gsm8k_output_small/analysis/trace_quality_ads.json",
-        "out": "gsm8k_output_small/analysis/trace_quality_pmf.pdf",
+        "out": "outputs/trace-quality-plot/gsm8k_trace_quality_pmf.pdf",
     },
     "math": {
         "standard": "math_output_small/analysis/trace_quality_standard.json",
         "poe": "math_output_small/analysis/trace_quality_poe.json",
         "ads": "math_output_small/analysis/trace_quality_ads.json",
-        "out": "math_output_small/analysis/trace_quality_pmf.pdf",
+        "out": "outputs/trace-quality-plot/math_trace_quality_pmf.pdf",
     },
 }
 
@@ -78,6 +79,7 @@ def plot(dataset_name):
     ax.set_ylim(0, None)
 
     fig.tight_layout()
+    os.makedirs(os.path.dirname(paths["out"]), exist_ok=True)
     fig.savefig(paths["out"], bbox_inches="tight")
     print(f"Saved to {paths['out']}")
     print(f"  Standard  mean={np.mean(std_scores):.2f}  (n={len(std_scores)})")
