@@ -18,8 +18,8 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 
 INPUTS=(
   "gsm8k_output_small/train_standard.json"
-  "gsm8k_output_small/train_poe_gamma_0.75.json"
-  "gsm8k_output_small/train_antidistillation_lam_0.08.json"
+  "gsm8k_output_small/train_poe_gamma_0.7.json"
+  "gsm8k_output_small/train_antidistillation_lam_0.055.json"
   "math_output_small/train_standard.json"
   "math_output_small/train_poe_gamma_0.75.json"
   "math_output_small/train_antidistillation_lam_0.08.json"
