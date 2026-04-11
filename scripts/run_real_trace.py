@@ -117,8 +117,8 @@ def _train_and_eval(cfg, train_traces, holdout_traces, out_dir, tag, device,
 def main() -> None:
     p = argparse.ArgumentParser(description="SFT on real-world LLM traces.")
     p.add_argument("--config", required=True)
-    p.add_argument("--trace-name", required=True, help="e.g. gsm8k_gpt → llm_trace/gsm8k_gpt.json")
-    p.add_argument("--trace-dir", type=str, default="llm_trace", help="Directory containing trace JSON files")
+    p.add_argument("--trace-name", required=True, help="e.g. gsm8k_gpt → traces_llms/gsm8k_gpt.json")
+    p.add_argument("--trace-dir", type=str, default="traces_llms", help="Directory containing trace JSON files")
     p.add_argument("--seed", type=int, default=None, help="Override config seed")
     p.add_argument("--output-dir", type=str, default=None)
     args = p.parse_args()
