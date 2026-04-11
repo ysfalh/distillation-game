@@ -65,7 +65,7 @@ def score_traces(input_path: str, output_path: str, model_name: str, batch_size:
         data = json.load(f)
 
     llm = LLM(model=model_name, enforce_eager=True)
-    sampling_params = SamplingParams(temperature=1.0, top_p=0.9, max_tokens=512)
+    sampling_params = SamplingParams(temperature=0.1, top_p=0.9, max_tokens=1024)
 
     results = []
     for start in range(0, len(data), batch_size):
