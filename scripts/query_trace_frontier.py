@@ -113,7 +113,7 @@ def generate_trace_llm(
     dataset_name: str,
     output_file: str,
     num_samples: int | None = None,
-    flush_every: int = 100,
+    flush_every: int = 50,
     max_workers: int = 5,
 ):
     """
