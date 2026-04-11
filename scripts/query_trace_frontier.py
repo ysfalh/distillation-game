@@ -113,8 +113,8 @@ def generate_trace_llm(
     dataset_name: str,
     output_file: str,
     num_samples: int | None = None,
-    flush_every: int = 10,
-    max_workers: int = 4,
+    flush_every: int = 100,
+    max_workers: int = 5,
 ):
     """
     Generate reasoning traces using OpenAI, Gemini, or Claude.
@@ -286,7 +286,7 @@ if __name__ == "__main__":
     # Gemini on MATH
     #
     # Gemini on GSM8K
-    generate_trace_llm("gemini", "gemini-3-flash-preview", gsm8k_data, "gsm8k", "gemini_gsm8k_traces.jsonl")
+    #generate_trace_llm("gemini", "gemini-3-flash-preview", gsm8k_data, "gsm8k", "gemini_gsm8k_traces.jsonl")
     generate_trace_llm("gemini", "gemini-3-flash-preview", math_data, "math", "gemini_math_traces.jsonl")
 
     # Claude on MATH
