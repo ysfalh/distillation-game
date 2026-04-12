@@ -1,26 +1,39 @@
 """
 Score reasoning traces using Claude API (absolute grading, 1-5) and plot results.
 
-Reads the raw train JSON files for each dataset/method, sends each trace
-to Claude with the auditability rubric, writes per-method output JSONs,
-and generates grouped bar-chart PDFs of the score PMFs.
+Reads raw train JSONs from (relative to repo root):
+    plot-quality/gsm8k/train_standard.json
+    plot-quality/gsm8k/train_poe_gamma_0.7.json
+    plot-quality/gsm8k/train_antidistillation_lam_0.055.json
+    plot-quality/math/train_*.json (same three methods)
+
+Writes scored JSONs and PDFs under the same plot-quality/{gsm8k,math}/ directories.
 
 Usage:
     python trace-quality-llm.py [--datasets gsm8k math] [--max-examples 0] [--plot-only]
-
-Outputs are written to:
-    plot-quality/gsm8k/trace_quality_{standard,poe,ads}.json
-    plot-quality/gsm8k/trace_quality_pmf.pdf
-    plot-quality/math/trace_quality_{standard,poe,ads}.json
-    plot-quality/math/trace_quality_pmf.pdf
 """
+
+API_KEY = 'fill-me'
 
 import os
 import json
 import time
+import random
 import argparse
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _repo_path(rel: str) -> str:
+    """Resolve path relative to strategic-distillation repo root."""
+    return str(REPO_ROOT / rel)
 
 import numpy as np
+
+np.random.seed(42)
+random.seed(42)  # subsampling uses random.shuffle
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -93,14 +106,14 @@ TOOLS = [
 
 DATASETS = {
     "gsm8k": {
-        "standard": "gsm8k_output_small/train_standard.json",
-        "poe":      "gsm8k_output_small/train_poe_gamma_0.7.json",
-        "ads":      "gsm8k_output_small/train_antidistillation_lam_0.055.json",
+        "standard": "plot-quality/gsm8k/train_standard.json",
+        "poe":      "plot-quality/gsm8k/train_poe_gamma_0.7.json",
+        "ads":      "plot-quality/gsm8k/train_antidistillation_lam_0.055.json",
     },
     "math": {
-        "standard": "math_output_small/train_standard.json",
-        "poe":      "math_output_small/train_poe_gamma_0.75.json",
-        "ads":      "math_output_small/train_antidistillation_lam_0.08.json",
+        "standard": "plot-quality/math/train_standard.json",
+        "poe":      "plot-quality/math/train_poe_gamma_0.75.json",
+        "ads":      "plot-quality/math/train_antidistillation_lam_0.08.json",
     },
 }
 
@@ -125,9 +138,6 @@ def score_traces(
     with open(input_path) as f:
         data = json.load(f)
 
-    if max_examples > 0:
-        data = data[:max_examples]
-
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     already_done = set()
@@ -138,9 +148,24 @@ def score_traces(
         already_done = {r["example_id"] for r in results}
         print(f"  Resuming: {len(already_done)} already scored")
 
+    if max_examples > 0:
+        remaining = max_examples - len(already_done)
+        if remaining <= 0:
+            print(f"  Already have {len(already_done)} >= {max_examples}, nothing to do")
+            return
+        unscored = [item for item in data if item.get("example_id", None) not in already_done]
+        random.shuffle(unscored)
+        data = unscored[:remaining]
+    else:
+        data = [item for item in data if item.get("example_id", None) not in already_done]
+
+    if not data:
+        print(f"  All examples already scored, nothing to do")
+        return
+
+    new_scored = 0
     for i, item in enumerate(data):
-        if item["example_id"] in already_done:
-            continue
+        example_id = item.get("example_id", f"idx_{i}")
 
         user_msg = build_user_message(item["prompt"], item["trace"])
 
@@ -160,35 +185,37 @@ def score_traces(
                 print(f"    API retry {attempt+1} after error: {e}  (wait {wait}s)")
                 time.sleep(wait)
         else:
-            print(f"    SKIP {item['example_id']} after 5 API retries")
+            print(f"    SKIP {example_id} after 5 API retries")
             continue
 
         block = next((b for b in response.content if b.type == "tool_use"), None)
         if block is None:
-            print(f"    SKIP {item['example_id']} — no tool_use block (stop_reason: {response.stop_reason})")
+            print(f"    SKIP {example_id} — no tool_use block (stop_reason: {response.stop_reason})")
             continue
 
         score = block.input["score"]
         feedback = block.input["feedback"]
 
         results.append({
-            "example_id": item["example_id"],
+            "example_id": example_id,
             "method": item.get("method", method_name),
             "trace": item.get("trace", ""),
             "score": score,
             "feedback": feedback,
         })
+        new_scored += 1
 
-        print(f"  [{dataset_name}/{method_name}] {item['example_id']} | score: {score}  ({i+1}/{len(data)})")
+        print(f"  [{dataset_name}/{method_name}] {example_id} | score: {score}  ({i+1}/{len(data)})")
 
-        if (i + 1) % 20 == 0 or (i + 1) == len(data):
+        if new_scored % 20 == 0:
             with open(output_path, "w") as f:
                 json.dump(results, f, indent=2)
 
-    with open(output_path, "w") as f:
-        json.dump(results, f, indent=2)
+    if new_scored > 0:
+        with open(output_path, "w") as f:
+            json.dump(results, f, indent=2)
 
-    print(f"  Wrote {len(results)} scores to {output_path}")
+    print(f"  Wrote {len(results)} scores to {output_path} ({new_scored} new)")
 
 
 # ---------------------------------------------------------------------------
@@ -207,13 +234,13 @@ def compute_pmf(scores, bins=range(1, 6)):
 
 
 def plot(dataset_name):
-    score_dir = f"plot-quality/{dataset_name}"
+    score_dir = _repo_path(f"plot-quality/{dataset_name}")
     paths = {
-        "standard": f"{score_dir}/trace_quality_standard.json",
-        "poe":      f"{score_dir}/trace_quality_poe.json",
-        "ads":      f"{score_dir}/trace_quality_ads.json",
+        "standard": os.path.join(score_dir, "trace_quality_standard.json"),
+        "poe":      os.path.join(score_dir, "trace_quality_poe.json"),
+        "ads":      os.path.join(score_dir, "trace_quality_ads.json"),
     }
-    out_path = f"{score_dir}/trace_quality_pmf.pdf"
+    out_path = os.path.join(score_dir, "trace_quality_pmf.pdf")
 
     std_scores = load_scores(paths["standard"])
     poe_scores = load_scores(paths["poe"])
@@ -241,6 +268,7 @@ def plot(dataset_name):
     ax.set_ylim(0, None)
 
     fig.tight_layout()
+    os.makedirs(score_dir, exist_ok=True)
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved plot to {out_path}")
@@ -259,7 +287,7 @@ def main():
         "--datasets", nargs="+", default=["gsm8k", "math"],
         choices=["gsm8k", "math"],
     )
-    parser.add_argument("--model", default="claude-sonnet-4-20250514")
+    parser.add_argument("--model", default="claude-opus-4-0-20250514")
     parser.add_argument(
         "--max-examples", type=int, default=0,
         help="Cap per file (0 = all)",
@@ -271,11 +299,12 @@ def main():
     args = parser.parse_args()
 
     if not args.plot_only:
-        client = Anthropic()
+        client = Anthropic(api_key=API_KEY)
         for ds in args.datasets:
             methods = DATASETS[ds]
-            for method_key, input_path in methods.items():
-                output_path = f"plot-quality/{ds}/trace_quality_{method_key}.json"
+            for method_key, rel_in in methods.items():
+                input_path = _repo_path(rel_in)
+                output_path = _repo_path(f"plot-quality/{ds}/trace_quality_{method_key}.json")
                 print(f"\n=== {ds} / {method_key} ===")
                 print(f"  Input:  {input_path}")
                 print(f"  Output: {output_path}")
