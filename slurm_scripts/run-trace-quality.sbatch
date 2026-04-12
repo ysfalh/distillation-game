@@ -5,7 +5,7 @@
 #SBATCH --gpus=1
 #SBATCH --constraint=48g
 #SBATCH --mem=64gb
-#SBATCH --time=24:00:00
+#SBATCH --array=0-5%6
 
 set -euo pipefail
 
@@ -18,6 +18,7 @@ mkdir -p gsm8k_output_small/analysis
 mkdir -p math_output_small/analysis
 
 export PYTHONUNBUFFERED=1
+export HF_TOKEN="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"
 export HF_HOME="/scratch/mhaghifam/hf_cache"
 export VLLM_ATTENTION_BACKEND="XFORMERS"
 export VLLM_USE_FLASHINFER="0"
@@ -25,9 +26,9 @@ export VLLM_USE_FLASHINFER="0"
 # Expect HF_TOKEN to already be set in your shell before sbatch.
 # Example:
 # export HF_TOKEN=...
-: "${HF_TOKEN:?Please export HF_TOKEN before submitting this job.}"
 
-SCORER="scripts/trace-quality-prometheus-no-ref.py"
+
+SCORER="scripts/trace-quality.py"
 PLOTTER="scripts/trace_quality_plot.py"
 MODEL="prometheus-eval/prometheus-7b-v2.0"
 BATCH_SIZE=64
@@ -71,7 +72,6 @@ done
 
 echo "All 6 scoring jobs finished."
 
-python -m pip install -q matplotlib numpy
 python "$PLOTTER"
 
 echo "Done. Plots saved to outputs/trace-quality-plot/"
