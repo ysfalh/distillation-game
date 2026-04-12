@@ -11,6 +11,9 @@ math_output/
 gsm8k_output/
 llm_traces_old/
 outputs_from_cluster/
+plot-quality-seed42/
+plot-quality-seed43/
+plot-quality-seed44/
 
 *.pyc
 *.pyo
