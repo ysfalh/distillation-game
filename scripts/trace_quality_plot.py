@@ -2,7 +2,7 @@
 Plot PMF of trace-quality scores (1–5) for Standard vs PoE vs ADS.
 
 Usage:
-    python trace_quality_plot.py [gsm8k | math]
+    python trace_quality_plot.py [gsm8k] [math]
 """
 
 import os
@@ -25,17 +25,19 @@ plt.rcParams.update({
     "legend.fontsize": 12,
 })
 
+SEEDS = ("42", "43", "44")
+BINS = np.arange(1, 6)
+METHODS = (
+    ("standard", "Standard", "#55A868"),
+    ("poe", "PoE", "#4C72B0"),
+    ("ads", "ADS", "#DD8452"),
+)
+
 DATASETS = {
     "gsm8k": {
-        "standard": "gsm8k_output_small/analysis/trace_quality_standard.json",
-        "poe": "gsm8k_output_small/analysis/trace_quality_poe.json",
-        "ads": "gsm8k_output_small/analysis/trace_quality_ads.json",
         "out": "outputs/trace-quality-plot/gsm8k_trace_quality_pmf.pdf",
     },
     "math": {
-        "standard": "math_output_small/analysis/trace_quality_standard.json",
-        "poe": "math_output_small/analysis/trace_quality_poe.json",
-        "ads": "math_output_small/analysis/trace_quality_ads.json",
         "out": "outputs/trace-quality-plot/math_trace_quality_pmf.pdf",
     },
 }
@@ -47,29 +49,84 @@ def load_scores(path):
     return [item["score"] for item in data if item["score"] is not None]
 
 
-def compute_pmf(scores, bins=range(1, 6)):
-    counts = np.array([scores.count(b) for b in bins])
+def compute_pmf(scores, bins=BINS):
+    counts = np.array([scores.count(score) for score in bins], dtype=float)
     return counts / counts.sum()
+
+
+def resolve_seed_dir(seed):
+    candidates = [
+        f"plot-quality-seed{seed}",
+        f"trace-quality-seed{seed}",
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    raise FileNotFoundError(
+        f"Could not find a seed directory for seed {seed}. "
+        f"Tried: {', '.join(candidates)}"
+    )
+
+
+def load_seed_scores(dataset_name, method_key):
+    scores_by_seed = []
+    for seed in SEEDS:
+        seed_dir = resolve_seed_dir(seed)
+        path = os.path.join(seed_dir, dataset_name, f"trace_quality_{method_key}.json")
+        scores_by_seed.append(load_scores(path))
+    return scores_by_seed
+
+
+def summarize_method(dataset_name, method_key):
+    seed_scores = load_seed_scores(dataset_name, method_key)
+    seed_pmfs = np.array([compute_pmf(scores) for scores in seed_scores])
+    mean_pmf = seed_pmfs.mean(axis=0)
+    if len(seed_pmfs) > 1:
+        se_pmf = seed_pmfs.std(axis=0, ddof=1) / np.sqrt(len(seed_pmfs))
+    else:
+        se_pmf = np.zeros_like(mean_pmf)
+
+    seed_mean_scores = np.array([np.mean(scores) for scores in seed_scores], dtype=float)
+    if len(seed_mean_scores) > 1:
+        se_mean_score = seed_mean_scores.std(ddof=1) / np.sqrt(len(seed_mean_scores))
+    else:
+        se_mean_score = 0.0
+
+    return {
+        "seed_scores": seed_scores,
+        "mean_pmf": mean_pmf,
+        "se_pmf": se_pmf,
+        "mean_score": seed_mean_scores.mean(),
+        "se_mean_score": se_mean_score,
+    }
 
 
 def plot(dataset_name):
     paths = DATASETS[dataset_name]
-
-    std_scores = load_scores(paths["standard"])
-    poe_scores = load_scores(paths["poe"])
-    ads_scores = load_scores(paths["ads"])
-
-    std_pmf = compute_pmf(std_scores)
-    poe_pmf = compute_pmf(poe_scores)
-    ads_pmf = compute_pmf(ads_scores)
+    summaries = {
+        method_key: summarize_method(dataset_name, method_key)
+        for method_key, _, _ in METHODS
+    }
 
     x = np.arange(1, 6)
     width = 0.25
 
     fig, ax = plt.subplots(figsize=(5.5, 3.5))
-    ax.bar(x - width, std_pmf, width, label="Standard", color="#55A868", edgecolor="black", linewidth=0.5)
-    ax.bar(x,         poe_pmf, width, label="PoE",      color="#4C72B0", edgecolor="black", linewidth=0.5)
-    ax.bar(x + width, ads_pmf, width, label="ADS",      color="#DD8452", edgecolor="black", linewidth=0.5)
+    offsets = (-width, 0.0, width)
+    for offset, (method_key, label, color) in zip(offsets, METHODS):
+        summary = summaries[method_key]
+        ax.bar(
+            x + offset,
+            summary["mean_pmf"],
+            width,
+            yerr=summary["se_pmf"],
+            capsize=3,
+            label=label,
+            color=color,
+            edgecolor="black",
+            linewidth=0.5,
+            error_kw={"elinewidth": 1.0, "capthick": 1.0},
+        )
 
     ax.set_xlabel("Trace Quality Score")
     ax.set_ylabel("Probability")
@@ -82,11 +139,24 @@ def plot(dataset_name):
     os.makedirs(os.path.dirname(paths["out"]), exist_ok=True)
     fig.savefig(paths["out"], bbox_inches="tight")
     print(f"Saved to {paths['out']}")
-    print(f"  Standard  mean={np.mean(std_scores):.2f}  (n={len(std_scores)})")
-    print(f"  PoE       mean={np.mean(poe_scores):.2f}  (n={len(poe_scores)})")
-    print(f"  ADS       mean={np.mean(ads_scores):.2f}  (n={len(ads_scores)})")
+    for method_key, label, _ in METHODS:
+        summary = summaries[method_key]
+        seed_sizes = [len(scores) for scores in summary["seed_scores"]]
+        print(
+            f"  {label:<8} mean score={summary['mean_score']:.2f} ± {summary['se_mean_score']:.2f} "
+            f"(seed sizes={seed_sizes})"
+        )
+        for score, pmf, se in zip(BINS, summary["mean_pmf"], summary["se_pmf"]):
+            print(f"    score={score}: pmf={pmf:.4f} ± {se:.4f}")
 
 
 if __name__ == "__main__":
-    for name in DATASETS:
+    dataset_names = sys.argv[1:] if len(sys.argv) > 1 else list(DATASETS)
+    invalid = [name for name in dataset_names if name not in DATASETS]
+    if invalid:
+        raise SystemExit(
+            f"Unknown dataset(s): {', '.join(invalid)}. "
+            f"Expected one or more of: {', '.join(DATASETS)}"
+        )
+    for name in dataset_names:
         plot(name)
