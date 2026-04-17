@@ -26,6 +26,14 @@ def _to_input_ids(raw: Any) -> list[int]:
     return list(raw)
 
 
+def _trace_text_for_training(ex: dict[str, Any]) -> str:
+    reasoning = ex.get("af_trace", ex.get("reasoning_text", ex.get("trace", ""))) or ""
+    af_final = ex.get("af_final_answer_only") or ""
+    if af_final and af_final not in reasoning:
+        reasoning = f"{reasoning.rstrip()}\n\n{af_final.lstrip()}".strip()
+    return reasoning
+
+
 class WeightedSFTTrainer(SFTTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         weight = inputs.pop("weight", None)
@@ -74,7 +82,7 @@ def compute_student_holdout_grad(
         batch_inputs = []
         for ex in batch_traces:
             prompt = ex.get("problem", ex.get("prompt", ""))
-            reasoning = ex.get("af_trace", ex.get("reasoning_text", ex.get("trace", "")))
+            reasoning = _trace_text_for_training(ex)
             messages = format_prompt_gsm8k(prompt) + [{"role": "assistant", "content": reasoning}]
             tokens = tokenizer.apply_chat_template(messages, add_generation_prompt=False, truncation=True, max_length=max_length)
             batch_inputs.append({"input_ids": _to_input_ids(tokens)})
@@ -112,7 +120,7 @@ def compute_trace_weights_fd(
     all_inputs = []
     for ex in traces:
         prompt = ex.get("problem", ex.get("prompt", ""))
-        reasoning = ex.get("af_trace", ex.get("reasoning_text", ex.get("trace", "")))
+        reasoning = _trace_text_for_training(ex)
         messages = format_prompt_gsm8k(prompt) + [{"role": "assistant", "content": reasoning}]
         tokens = tokenizer.apply_chat_template(messages, add_generation_prompt=False, truncation=True, max_length=max_length)
         all_inputs.append({"input_ids": _to_input_ids(tokens)})
@@ -201,7 +209,7 @@ def run_distill(
 
     def to_text(ex: dict[str, Any]) -> list[dict[str, str]]:
         prompt = ex.get("problem", ex.get("prompt", ""))
-        reasoning = ex.get("af_trace", ex.get("reasoning_text", ex.get("trace", "")))
+        reasoning = _trace_text_for_training(ex)
         return format_prompt_gsm8k(prompt) + [{"role": "assistant", "content": reasoning}]
 
     train_texts = [tokenizer.decode(tokenizer.apply_chat_template(to_text(ex), add_generation_prompt=False, truncation=True, max_length=cfg.distill.max_length)) for ex in train_traces]

@@ -1,6 +1,3 @@
-Evaluation module contract:
+Evaluation utilities.
 
-- answer extraction
-- GSM8K correctness
-- compact aggregate metrics
-- informative final Markdown table
+This module handles answer extraction, correctness checks, aggregate metrics, and the final Markdown summaries written for each run.

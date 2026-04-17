@@ -1,12 +1,3 @@
-Generation module contract:
+Teacher-generation utilities.
 
-- explicit fixed batch size
-- no auto-scaling
-- no hidden backend toggles
-- standard decoding
-- antidistillation teacher decoding
-- product-of-experts decoding
-- optional strategic teacher decoding if we keep parity with the current sweep surface
-
-Implementation note:
-teacher generation should emit compact trace records keyed by `example_id`, with prompt text stored once per split when possible.
+This module contains the standard, antidistillation, product-of-experts, and strategic teacher variants used in the experiment sweeps. Outputs are stored as compact records keyed by `example_id`.

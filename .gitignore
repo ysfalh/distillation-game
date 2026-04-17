@@ -11,3 +11,4 @@ artifacts/
 *.pyc
 *.pyo
 *.DS_Store
+scripts/student_attr_ablation_local.py

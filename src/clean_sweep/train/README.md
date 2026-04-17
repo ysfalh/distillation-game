@@ -1,7 +1,3 @@
-Training module contract:
+Student-distillation utilities.
 
-- naive student
-- strategic-fd student
-- no Newton variants
-- checkpoint saving disabled by default
-- exact config and compact metrics persisted per run
+This module implements the passive (`naive`) and adaptive (`strategic_fd`) student training routines used in the experiments, with run-level metrics and configuration snapshots saved alongside outputs.

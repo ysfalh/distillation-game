@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "antidistillation-clean"
 version = "0.1.0"
-description = "Minimal clean reproduction repo for antidistillation experiments"
+description = "Experimental pipeline for adaptive distillation and antidistillation studies"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
