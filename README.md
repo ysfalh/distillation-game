@@ -76,12 +76,12 @@ PYTHONPATH=src python3 scripts/run_pipeline.py --config configs/gsm8k_small.yaml
 
 Main output files:
 
-- `outputs/<run_name_timestamp>/run_manifest.json`
-- `outputs/<run_name_timestamp>/prompts.json`
-- `outputs/<run_name_timestamp>/teacher/*.jsonl`
-- `outputs/<run_name_timestamp>/student/*.jsonl`
-- `outputs/<run_name_timestamp>/inspection/*.json`
-- `outputs/<run_name_timestamp>/RESULTS.md`
+
+- `configs/gsm8k.yaml`: main GSM8K sweep
+- `configs/gsm8k_small.yaml`: reduced GSM8K run for iteration
+- `configs/math_large.yaml`: main MATH sweep
+- `configs/math_small.yaml`: reduced MATH run
+>>>>>>> 7dc4890 (+ cleanup)
 
 ## Artifact philosophy
 
