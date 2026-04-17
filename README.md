@@ -22,14 +22,11 @@ PYTHONPATH=src python3 scripts/run_pipeline.py --config configs/gsm8k_small.yaml
 
 Useful configs:
 
-- `configs/gsm8k_small.yaml`: reduced GSM8K run for iteration
+
 - `configs/gsm8k.yaml`: main GSM8K sweep
-- `configs/gsm_hard.yaml`: GSM-Hard sweep
-- `configs/svamp.yaml`: SVAMP sweep
-- `configs/svamp_minimal.yaml`: reduced SVAMP run
+- `configs/gsm8k_small.yaml`: reduced GSM8K run for iteration
+- `configs/math_large.yaml`: main MATH sweep
 - `configs/math_small.yaml`: reduced MATH run
-- `configs/math.yaml`: main MATH sweep
-- `configs/math_large.yaml`: extended MATH sweep
 
 Each run writes a timestamped directory under `outputs/` with the config snapshot, run manifest, teacher and student artifacts, and a `RESULTS.md` summary.
 
