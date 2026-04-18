@@ -84,7 +84,7 @@ def main() -> None:
         holdout_size=cfg.data.holdout_size,
         test_size=cfg.data.test_size,
     )
-    format_prompt = format_prompt_gsm8k if cfg.data.dataset_name == "gsm8k" else format_prompt_math
+    format_prompt = format_prompt_gsm8k if cfg.data.dataset_name in {"gsm8k", "gsm_hard", "svamp"} else format_prompt_math
     _log_stage_end(
         f"Loading {cfg.data.dataset_name.upper()} splits",
         stage,
@@ -104,6 +104,7 @@ def main() -> None:
                 "standard": cfg.teachers.standard,
                 "antidistillation_lams": cfg.teachers.antidistillation_lams,
                 "poe_gammas": cfg.teachers.poe_gammas,
+                "strategic_beta_teachers": cfg.teachers.strategic_beta_teachers,
             },
             "students": {
                 "modes": cfg.distill.student_modes,
@@ -193,38 +194,80 @@ def main() -> None:
     )
     _log_stage_end(stage_label, stage, extra=f"n_holdout={len(holdout_full)}")
 
+    beta_teacher_values = cfg.teachers.strategic_beta_teachers
     for lam in cfg.teachers.antidistillation_lams:
-        for split_name in ("train", "test"):
-            set_seed(cfg.run.seed)
-            stage_label = f"Teacher generation | method=antidistillation | lam={lam} | split={split_name}"
-            stage = _log_stage_start(stage_label)
-            compact, inspection = generate_teacher_traces(
-                cfg=cfg,
-                dataset=splits[split_name],
-                format_prompt=format_prompt,
-                method_name="antidistillation",
-                device=device,
-                model=teacher_model,
-                tokenizer=teacher_tokenizer,
-                grad_dict=proxy_grads,
-                lam=lam,
-            )
-            method_key = f"teacher_antidistillation_lam_{lam}"
-            write_json(compact, out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}.json")
-            write_markdown_examples(
-                compact[: cfg.artifacts.save_inspection_samples],
-                out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}.md",
-                title=f"{split_name} antidistillation lam={lam}",
-            )
-            if split_name == "train":
-                teacher_train_sources[method_key] = inspection
-            acc = sum(1 for row in compact if row["correct"]) / max(len(compact), 1)
-            _log_stage_end(
-                stage_label,
-                stage,
-                extra=f"n={len(compact)}, accuracy={acc:.4f}",
-            )
-            teacher_rows.append({"train_source": "-", "eval_model": f"{method_key}_{split_name}", "accuracy": acc, "notes": split_name})
+        if beta_teacher_values:
+            for beta_teacher in beta_teacher_values:
+                for split_name in ("train", "test"):
+                    set_seed(cfg.run.seed)
+                    stage_label = (
+                        f"Teacher generation | method=antidistillation | lam={lam} | beta_teacher={beta_teacher} | split={split_name}"
+                    )
+                    stage = _log_stage_start(stage_label)
+                    compact, inspection = generate_teacher_traces(
+                        cfg=cfg,
+                        dataset=splits[split_name],
+                        format_prompt=format_prompt,
+                        method_name="antidistillation",
+                        device=device,
+                        model=teacher_model,
+                        tokenizer=teacher_tokenizer,
+                        grad_dict=proxy_grads,
+                        lam=lam,
+                        # Strategic-teacher runs use the configured transformed penalty.
+                        penalty_transform=cfg.distill.penalty_transform,
+                        beta_teacher=beta_teacher,
+                    )
+                    method_key = f"teacher_antidistillation_lam_{lam}_beta_teacher_{beta_teacher}"
+                    write_json(compact, out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}_beta_teacher_{beta_teacher}.json")
+                    write_markdown_examples(
+                        compact[: cfg.artifacts.save_inspection_samples],
+                        out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}_beta_teacher_{beta_teacher}.md",
+                        title=f"{split_name} antidistillation lam={lam} beta_teacher={beta_teacher}",
+                    )
+                    if split_name == "train":
+                        teacher_train_sources[method_key] = inspection
+                    acc = sum(1 for row in compact if row["correct"]) / max(len(compact), 1)
+                    _log_stage_end(
+                        stage_label,
+                        stage,
+                        extra=f"n={len(compact)}, accuracy={acc:.4f}",
+                    )
+                    teacher_rows.append({"train_source": "-", "eval_model": f"{method_key}_{split_name}", "accuracy": acc, "notes": split_name})
+        else:
+            for split_name in ("train", "test"):
+                set_seed(cfg.run.seed)
+                stage_label = f"Teacher generation | method=antidistillation | lam={lam} | split={split_name}"
+                stage = _log_stage_start(stage_label)
+                compact, inspection = generate_teacher_traces(
+                    cfg=cfg,
+                    dataset=splits[split_name],
+                    format_prompt=format_prompt,
+                    method_name="antidistillation",
+                    device=device,
+                    model=teacher_model,
+                    tokenizer=teacher_tokenizer,
+                    grad_dict=proxy_grads,
+                    lam=lam,
+                    # Plain ADS should stay on the original identity penalty by default.
+                    penalty_transform="identity",
+                )
+                method_key = f"teacher_antidistillation_lam_{lam}"
+                write_json(compact, out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}.json")
+                write_markdown_examples(
+                    compact[: cfg.artifacts.save_inspection_samples],
+                    out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}.md",
+                    title=f"{split_name} antidistillation lam={lam}",
+                )
+                if split_name == "train":
+                    teacher_train_sources[method_key] = inspection
+                acc = sum(1 for row in compact if row["correct"]) / max(len(compact), 1)
+                _log_stage_end(
+                    stage_label,
+                    stage,
+                    extra=f"n={len(compact)}, accuracy={acc:.4f}",
+                )
+                teacher_rows.append({"train_source": "-", "eval_model": f"{method_key}_{split_name}", "accuracy": acc, "notes": split_name})
 
     for gamma in cfg.teachers.poe_gammas:
         for split_name in ("train", "test"):
