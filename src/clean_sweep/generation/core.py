@@ -264,6 +264,7 @@ def generate_teacher_traces(
     tokenizer: Any,
     grad_dict: dict[str, torch.Tensor] | None = None,
     lam: float | None = None,
+    penalty_transform: str = "identity",
     beta_teacher: float = 1.0,
     gamma: float | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -321,7 +322,7 @@ def generate_teacher_traces(
                     lam=lam or 0.0,
                     eps=cfg.generation.eps,
                     get_logits_plus_minus=logits_builder,
-                    penalty_transform=cfg.distill.penalty_transform,
+                    penalty_transform=penalty_transform,
                     beta_teacher=beta_teacher,
                     attention_mask=batch_attention_mask,
                     temperature=tau,

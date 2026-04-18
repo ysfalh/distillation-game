@@ -30,6 +30,13 @@ Useful configs:
 
 Each run writes a timestamped directory under `outputs/` with the config snapshot, run manifest, teacher and student artifacts, and a `RESULTS.md` summary.
 
+## Citation
+
+If you use this repository, please cite the accompanying paper:
+
+*The Distillation Game: Adaptive Attacks & Efficient Defenses*.
+
+
 ## Repository Layout
 
 - `scripts/run_pipeline.py`: end-to-end experiment driver

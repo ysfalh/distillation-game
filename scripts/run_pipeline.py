@@ -214,6 +214,8 @@ def main() -> None:
                         tokenizer=teacher_tokenizer,
                         grad_dict=proxy_grads,
                         lam=lam,
+                        # Strategic-teacher runs use the configured transformed penalty.
+                        penalty_transform=cfg.distill.penalty_transform,
                         beta_teacher=beta_teacher,
                     )
                     method_key = f"teacher_antidistillation_lam_{lam}_beta_teacher_{beta_teacher}"
@@ -247,6 +249,8 @@ def main() -> None:
                     tokenizer=teacher_tokenizer,
                     grad_dict=proxy_grads,
                     lam=lam,
+                    # Plain ADS should stay on the original identity penalty by default.
+                    penalty_transform="identity",
                 )
                 method_key = f"teacher_antidistillation_lam_{lam}"
                 write_json(compact, out_dir / "teacher" / f"{split_name}_antidistillation_lam_{lam}.json")
