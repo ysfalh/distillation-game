@@ -102,7 +102,11 @@ def _gpu_mem() -> str:
         return "cpu"
     a = torch.cuda.memory_allocated() / 1e9
     r = torch.cuda.memory_reserved() / 1e9
-    t = torch.cuda.get_device_properties(0).total_mem / 1e9
+    props = torch.cuda.get_device_properties(0)
+    total_mem = getattr(props, "total_memory", getattr(props, "total_mem", None))
+    if total_mem is None:
+        return f"GPU mem: {a:.1f}GB alloc / {r:.1f}GB reserved"
+    t = total_mem / 1e9
     return f"GPU mem: {a:.1f}GB alloc / {r:.1f}GB reserved / {t:.1f}GB total"
 
 
