@@ -42,9 +42,14 @@ from __future__ import annotations
 import argparse
 import gc
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+_src_path = str(Path(__file__).resolve().parent.parent / "src")
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
