@@ -43,6 +43,9 @@ class GenerationConfig(BaseModel):
     answer_force_max_new_tokens: int = 32
     batch_size: int = 8
     greedy: bool = False
+    strategic_eta_prefix: float = 0.25
+    strategic_lambda_max: Optional[float] = None
+    strategic_gamma_max: float = 0.95
 
 
 class TeacherSweepConfig(BaseModel):
@@ -50,6 +53,8 @@ class TeacherSweepConfig(BaseModel):
     antidistillation_lams: list[float] = Field(default_factory=list)
     poe_gammas: list[float] = Field(default_factory=list)
     strategic_beta_teachers: list[float] = Field(default_factory=lambda: [1.0])
+    strategic_antidistillation_lams: list[float] = Field(default_factory=list)
+    strategic_poe_gammas: list[float] = Field(default_factory=list)
 
 
 class DistillConfig(BaseModel):
@@ -71,6 +76,7 @@ class DistillConfig(BaseModel):
     save_final_model: bool = False
     holdout_grad_batch_size: int = 2
     trace_weights_fd_batch_size: int = 8
+    teacher_sign: float = -1.0
 
 
 class ArtifactConfig(BaseModel):

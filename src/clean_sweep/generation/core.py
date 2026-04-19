@@ -10,6 +10,10 @@ from clean_sweep.artifacts import TraceRecord, compact_trace_row
 from clean_sweep.config import FullConfig
 from clean_sweep.eval import check_trace_correctness
 from clean_sweep.generation.methods import AntidistillationLogitsProcessor, ProductOfExpertsLogitsProcessor
+from clean_sweep.generation.methods_strategic import (
+    StrategicAntidistillationLogitsProcessor,
+    StrategicProductOfExpertsLogitsProcessor,
+)
 
 
 ANSWER_FORCE_SUFFIX_DEFAULT = "\n\n**Final Answer**\n\\[\\boxed{"
@@ -267,6 +271,8 @@ def generate_teacher_traces(
     penalty_transform: str = "identity",
     beta_teacher: float = 1.0,
     gamma: float | None = None,
+    ads_proxy_wrappers: tuple[CachedModelWrapper, CachedModelWrapper] | None = None,
+    poe_proxy_wrapper: CachedModelWrapper | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     model.eval()
     messages_list = [format_prompt(dataset[i]["problem"]) for i in range(len(dataset))]
@@ -286,20 +292,26 @@ def generate_teacher_traces(
     logits_builder = None
     poe_logits = None
 
-    if method_name == "antidistillation":
-        if grad_dict is None:
-            raise ValueError("antidistillation requires proxy gradients")
-        plus, minus = build_proxy_plus_minus(cfg, tokenizer, device, grad_dict)
+    if method_name in ("antidistillation", "strategic_antidistillation"):
+        if ads_proxy_wrappers is not None:
+            plus, minus = ads_proxy_wrappers
+        else:
+            if grad_dict is None:
+                raise ValueError(f"{method_name} requires proxy gradients")
+            plus, minus = build_proxy_plus_minus(cfg, tokenizer, device, grad_dict)
         proxy_wrappers = [plus, minus]
 
         def get_logits_plus_minus(i: torch.Tensor, a: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor]:
             return plus(i, a)[:, -1], minus(i, a)[:, -1]
 
         logits_builder = get_logits_plus_minus
-    elif method_name == "poe":
-        if cfg.model.proxy_student is None:
-            raise ValueError("poe requires proxy_student")
-        poe_wrapper = load_proxy_for_poe(cfg, tokenizer, device)
+    elif method_name in ("poe", "strategic_poe"):
+        if poe_proxy_wrapper is not None:
+            poe_wrapper = poe_proxy_wrapper
+        else:
+            if cfg.model.proxy_student is None:
+                raise ValueError(f"{method_name} requires proxy_student")
+            poe_wrapper = load_proxy_for_poe(cfg, tokenizer, device)
 
         def get_proxy_logits(i: torch.Tensor, a: torch.Tensor | None) -> torch.Tensor:
             assert poe_wrapper is not None
@@ -333,6 +345,46 @@ def generate_teacher_traces(
             poe_wrapper.reset_cache()
             logits_processor = LogitsProcessorList([
                 ProductOfExpertsLogitsProcessor(gamma=gamma, get_proxy_logits=poe_logits, attention_mask=batch_attention_mask)
+            ])
+        elif method_name == "strategic_antidistillation":
+            for wrapper in proxy_wrappers:
+                wrapper.reset_cache()
+            tau = cfg.generation.temperature if cfg.generation.temperature > 0 else 1.0
+            logits_processor = LogitsProcessorList([
+                StrategicAntidistillationLogitsProcessor(
+                    lam=lam or 0.0,
+                    eta_prefix=cfg.generation.strategic_eta_prefix,
+                    lambda_max=cfg.generation.strategic_lambda_max,
+                    eps=cfg.generation.eps,
+                    get_logits_plus_minus=logits_builder,
+                    penalty_transform=penalty_transform,
+                    beta_teacher=beta_teacher,
+                    attention_mask=batch_attention_mask,
+                    temperature=tau,
+                    teacher_sign=cfg.distill.teacher_sign,
+                    ignore_token_ids={
+                        tok
+                        for tok in [tokenizer.pad_token_id, tokenizer.eos_token_id]
+                        if tok is not None
+                    },
+                )
+            ])
+        elif method_name == "strategic_poe" and gamma is not None and gamma != 0.0:
+            assert poe_logits is not None
+            poe_wrapper.reset_cache()
+            logits_processor = LogitsProcessorList([
+                StrategicProductOfExpertsLogitsProcessor(
+                    gamma=gamma,
+                    eta_prefix=cfg.generation.strategic_eta_prefix,
+                    gamma_max=cfg.generation.strategic_gamma_max,
+                    get_proxy_logits=poe_logits,
+                    attention_mask=batch_attention_mask,
+                    ignore_token_ids={
+                        tok
+                        for tok in [tokenizer.pad_token_id, tokenizer.eos_token_id]
+                        if tok is not None
+                    },
+                )
             ])
 
         with torch.inference_mode():

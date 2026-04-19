@@ -31,6 +31,16 @@ def apply_weight_transform(raw_weights: list[float], beta_s: float, transform: s
     return apply_penalty_transform(t, transform, beta_s).tolist()
 
 
+def _match_vocab_dim(values: torch.Tensor, target_vocab: int) -> torch.Tensor:
+    import torch.nn.functional as F
+
+    if values.shape[1] == target_vocab:
+        return values
+    if values.shape[1] < target_vocab:
+        return F.pad(values, (0, target_vocab - values.shape[1]), value=0.0)
+    return values[:, :target_vocab].contiguous()
+
+
 class AntidistillationLogitsProcessor(LogitsProcessor):
     def __init__(
         self,
@@ -61,11 +71,7 @@ class AntidistillationLogitsProcessor(LogitsProcessor):
         logits_plus, logits_minus = self.get_logits_plus_minus(input_ids, attention_mask)
         delta_b = (logits_plus.float() - logits_minus.float()) / (2.0 * self.eps)
         penalty = apply_penalty_transform(delta_b, self.penalty_transform, self.beta_teacher)
-        if penalty.shape[1] != scores.shape[1]:
-            if penalty.shape[1] < scores.shape[1]:
-                penalty = F.pad(penalty, (0, scores.shape[1] - penalty.shape[1]), value=0.0)
-            else:
-                penalty = penalty[:, : scores.shape[1]].contiguous()
+        penalty = _match_vocab_dim(penalty, scores.shape[1])
         return scores.float() + self._effective_lam * penalty
 
 
@@ -90,9 +96,5 @@ class ProductOfExpertsLogitsProcessor(LogitsProcessor):
         if attention_mask is not None and attention_mask.shape[1] < input_ids.shape[1]:
             attention_mask = F.pad(attention_mask, (0, input_ids.shape[1] - attention_mask.shape[1]), value=1)
         proxy_logits = self.get_proxy_logits(input_ids, attention_mask).float()
-        if proxy_logits.shape[1] != scores.shape[1]:
-            if proxy_logits.shape[1] < scores.shape[1]:
-                proxy_logits = F.pad(proxy_logits, (0, scores.shape[1] - proxy_logits.shape[1]), value=0.0)
-            else:
-                proxy_logits = proxy_logits[:, : scores.shape[1]].contiguous()
+        proxy_logits = _match_vocab_dim(proxy_logits, scores.shape[1])
         return (1.0 - self.gamma) * scores.float() + self.gamma * proxy_logits
