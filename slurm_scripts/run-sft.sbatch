@@ -18,8 +18,8 @@ export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
 SEEDS=(0 1337 3407)
 TRACES=("gemini_math_traces" "claude_math_traces" "claude_gsm8k_traces" "openai_math_traces" "openai_gsm8k_traces")
 
-SEED_IDX=$((SLURM_ARRAY_TASK_ID / 6))
-TRACE_IDX=$((SLURM_ARRAY_TASK_ID % 6))
+SEED_IDX=$((SLURM_ARRAY_TASK_ID / 5))
+TRACE_IDX=$((SLURM_ARRAY_TASK_ID % 5))
 
 SEED=${SEEDS[$SEED_IDX]}
 TRACE=${TRACES[$TRACE_IDX]}
