@@ -62,7 +62,7 @@ fi
 # ── Sweep definition (keep in lockstep with run-strategic-teacher.sbatch) ──
 METHODS=(ads poe)
 ADS_LAMS=(0.03 0.05 0.1 0.25)
-POE_GAMMAS=(0.5 0.6 0.7 0.8)
+POE_GAMMAS=(0.6 0.7 0.8 0.9)
 
 # Non-strategic baselines trained alongside the strategic variant in every
 # task of the corresponding family. Pick the lambda/gamma you want to compare
