@@ -367,6 +367,7 @@ def generate_teacher_traces(
                         for tok in [tokenizer.pad_token_id, tokenizer.eos_token_id]
                         if tok is not None
                     },
+                    debug_every=getattr(cfg.generation, "strategic_debug_every", 0),
                 )
             ])
         elif method_name == "strategic_poe" and gamma is not None and gamma != 0.0:
@@ -384,6 +385,7 @@ def generate_teacher_traces(
                         for tok in [tokenizer.pad_token_id, tokenizer.eos_token_id]
                         if tok is not None
                     },
+                    debug_every=getattr(cfg.generation, "strategic_debug_every", 0),
                 )
             ])
 

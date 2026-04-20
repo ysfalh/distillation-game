@@ -46,6 +46,7 @@ class GenerationConfig(BaseModel):
     strategic_eta_prefix: float = 0.25
     strategic_lambda_max: Optional[float] = None
     strategic_gamma_max: float = 0.95
+    strategic_debug_every: int = 200
 
 
 class TeacherSweepConfig(BaseModel):

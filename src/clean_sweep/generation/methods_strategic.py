@@ -113,6 +113,7 @@ class StrategicProductOfExpertsLogitsProcessor(LogitsProcessor):
         gamma_max: float = 0.95,
         prefix_value_clip: float = PREFIX_VALUE_CLIP,
         ignore_token_ids: Iterable[int] | None = None,
+        debug_every: int = 0,
     ):
         if gamma < 0.0:
             raise ValueError(f"gamma must be non-negative, got {gamma}")
@@ -123,6 +124,7 @@ class StrategicProductOfExpertsLogitsProcessor(LogitsProcessor):
         self.gamma_max = float(gamma_max)
         self.get_proxy_logits = get_proxy_logits
         self.attention_mask = attention_mask
+        self.debug_every = int(debug_every)
         self.state = _StrategicPrefixState(
             eta_prefix=eta_prefix,
             prefix_value_clip=prefix_value_clip,
@@ -151,7 +153,28 @@ class StrategicProductOfExpertsLogitsProcessor(LogitsProcessor):
         self.state._set_current_token_values(token_gap, input_ids)
 
         gamma_t = self.state.dynamic_scale(self.gamma, min_value=self.gamma_min, max_value=self.gamma_max)
-        return (1.0 - gamma_t.unsqueeze(1)) * ref_logits + gamma_t.unsqueeze(1) * proxy_logits
+        mixed_logits = (1.0 - gamma_t.unsqueeze(1)) * ref_logits + gamma_t.unsqueeze(1) * proxy_logits
+
+        if self.debug_every > 0 and input_ids.shape[1] % self.debug_every == 0:
+            with torch.no_grad():
+                prefix = self.state.current_prefix_value(scores.shape[0], scores.device)
+                clip_frac = (gamma_t >= self.gamma_max - 1e-6).float().mean()
+                top1_change = (ref_logits.argmax(dim=-1) != mixed_logits.argmax(dim=-1)).float().mean()
+                print(
+                    "[strategic_poe] "
+                    f"step={input_ids.shape[1]} "
+                    f"s_mean={prefix.mean().item():.4f} "
+                    f"s_min={prefix.min().item():.4f} "
+                    f"s_max={prefix.max().item():.4f} "
+                    f"gamma_mean={gamma_t.mean().item():.4f} "
+                    f"gamma_min={gamma_t.min().item():.4f} "
+                    f"gamma_max={gamma_t.max().item():.4f} "
+                    f"clip_frac={clip_frac.item():.3f} "
+                    f"top1_change={top1_change.item():.3f}",
+                    flush=True,
+                )
+
+        return mixed_logits
 
 
 class StrategicAntidistillationLogitsProcessor(LogitsProcessor):
@@ -193,6 +216,7 @@ class StrategicAntidistillationLogitsProcessor(LogitsProcessor):
         lambda_max: float | None = None,
         prefix_value_clip: float = PREFIX_VALUE_CLIP,
         ignore_token_ids: Iterable[int] | None = None,
+        debug_every: int = 0,
     ):
         if lam < 0.0:
             raise ValueError(f"lam must be non-negative, got {lam}")
@@ -208,6 +232,7 @@ class StrategicAntidistillationLogitsProcessor(LogitsProcessor):
         self.teacher_sign = float(teacher_sign)
         self.lambda_min = float(lambda_min)
         self.lambda_max = None if lambda_max is None else float(lambda_max)
+        self.debug_every = int(debug_every)
         self.state = _StrategicPrefixState(
             eta_prefix=eta_prefix,
             prefix_value_clip=prefix_value_clip,
@@ -244,4 +269,31 @@ class StrategicAntidistillationLogitsProcessor(LogitsProcessor):
             min_value=self.lambda_min,
             max_value=self.lambda_max,
         )
-        return scores.float() + self.teacher_sign * effective_lam.unsqueeze(1) * penalty
+        shift = self.teacher_sign * effective_lam.unsqueeze(1) * penalty
+        new_logits = scores.float() + shift
+
+        if self.debug_every > 0 and input_ids.shape[1] % self.debug_every == 0:
+            with torch.no_grad():
+                prefix = self.state.current_prefix_value(scores.shape[0], scores.device)
+                if self.lambda_max is not None:
+                    clip_frac = (effective_lam >= self.lambda_max - 1e-6).float().mean()
+                else:
+                    clip_frac = torch.tensor(0.0, device=scores.device)
+                top1_change = (scores.argmax(dim=-1) != new_logits.argmax(dim=-1)).float().mean()
+                print(
+                    "[strategic_ads] "
+                    f"step={input_ids.shape[1]} "
+                    f"s_mean={prefix.mean().item():.4f} "
+                    f"s_min={prefix.min().item():.4f} "
+                    f"s_max={prefix.max().item():.4f} "
+                    f"lambda_mean={effective_lam.mean().item():.4f} "
+                    f"lambda_min={effective_lam.min().item():.4f} "
+                    f"lambda_max={effective_lam.max().item():.4f} "
+                    f"clip_frac={clip_frac.item():.3f} "
+                    f"shift_abs_mean={shift.abs().mean().item():.4f} "
+                    f"shift_abs_max={shift.abs().max().item():.4f} "
+                    f"top1_change={top1_change.item():.3f}",
+                    flush=True,
+                )
+
+        return new_logits
