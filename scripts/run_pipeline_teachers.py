@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Strategic distillation — distillation pipeline (Stages 3–6).
+Strategic distillation — teacher pipeline (Stages 3 & 4 only).
 
 Consumes the output of run_pipeline_generation.py:
   <input-dir>/
@@ -16,24 +16,36 @@ Consumes the output of run_pipeline_generation.py:
 Runs:
   STAGE 3 — Antidistillation (ADS) family teachers
   STAGE 4 — Product-of-Experts (PoE) family teachers
-  STAGE 5 — Student distillation & evaluation
-  STAGE 6 — Final results (results.json + RESULTS.md)
 
-By default, artifacts are written back into --input-dir, preserving the
-on-disk layout of scripts/run_pipeline.py. For array sweeps that reuse one
-generation cache across many distillation runs, pass --output-dir and/or
---config to direct each task to its own location.
+Writes (for consumption by run_pipeline_student.py):
+  <output-dir>/
+    teacher/train_<tag>.json    compact per-method traces (one file per teacher)
+    teacher/train_<tag>.md      markdown samples (save_inspection_samples)
+    cache/
+      teacher_train_sources.json   dict[method_key -> inspection rows]
+      teacher_rows.json            teacher rows from Stages 1 + 3 + 4 (overwritten)
+    phase_times.json            Stages 1–2 + 3–4 timings (overwritten)
+    TEACHERS_DONE               completion marker
+
+If --output-dir differs from --input-dir (sweep mode), we symlink (or copy
+on fallback) the generation-side inputs the student needs — namely
+  config_snapshot.yaml   and   cache/holdout_full.json
+— into the output-dir, so `run_pipeline_student.py --input-dir <output-dir>`
+is self-sufficient.
 
 Usage:
-    # Simplest: reuse snapshot, write results into the generation dir.
-    python scripts/run_pipeline_distillation.py --input-dir /path/from/generation
+    # Simplest: reuse snapshot, write teacher outputs into the generation dir.
+    python scripts/run_pipeline_teachers.py --input-dir /path/from/generation
 
-    # Sweep variant: reuse the cache, but override teachers.*/distill.* via a
-    # custom config, and write results to a per-task dir.
-    python scripts/run_pipeline_distillation.py \
+    # Sweep variant: share the generation cache, override teachers.* via a
+    # custom config, and write teacher artifacts to a per-task dir.
+    python scripts/run_pipeline_teachers.py \
         --input-dir  /shared/generation \
         --config     /tmp/sweep_task_3.yaml \
         --output-dir /shared/generation/distill_sweep_task_3
+
+Next step:
+    python scripts/run_pipeline_student.py --input-dir <output-dir>
 """
 from __future__ import annotations
 
@@ -69,8 +81,6 @@ from clean_sweep.config import FullConfig
 from clean_sweep.data import format_prompt_gsm8k, format_prompt_math, load_dataset_splits
 from clean_sweep.generation import generate_teacher_traces, load_model_and_tokenizer
 from clean_sweep.generation.core import build_proxy_plus_minus, load_proxy_for_poe
-from clean_sweep.summary import build_results_report
-from clean_sweep.train import run_distill
 from clean_sweep.utils import ensure_dir, set_seed, write_json, write_markdown_examples
 
 console = Console()
@@ -79,13 +89,17 @@ if _hf_disable_progress_bar is not None:
     _hf_disable_progress_bar()
 
 
-# Cache file layout — keep in sync with run_pipeline_generation.py.
+# Cache file layout — keep in sync with run_pipeline_generation.py and
+# run_pipeline_student.py.
 CACHE_PROXY_GRADS = "proxy_grads.pt"
 CACHE_HOLDOUT_FULL = "holdout_full.json"
 CACHE_TEACHER_STANDARD_TRAIN = "teacher_standard_train.json"
 CACHE_TEACHER_ROWS = "teacher_rows.json"
+CACHE_TEACHER_TRAIN_SOURCES = "teacher_train_sources.json"
 CACHE_PHASE_TIMES = "phase_times.json"
 GENERATION_DONE_MARKER = "GENERATION_DONE"
+TEACHERS_DONE_MARKER = "TEACHERS_DONE"
+CONFIG_SNAPSHOT_NAME = "config_snapshot.yaml"
 
 
 # ── Logging helpers ───────────────────────────────────────────────────────
@@ -200,19 +214,32 @@ def _log_teacher_summary(
     console.print()
 
 
-def _log_student_summary(student_rows: list[dict]) -> None:
-    _separator("STUDENT DISTILLATION SUMMARY")
-    console.print(f"  Runs completed: {len(student_rows)}")
-    console.print(f"  {'Source':<50} {'Mode':<16} {'Test Acc':>10}")
-    console.print(f"  {'-' * 50} {'-' * 16} {'-' * 10}")
-    for r in student_rows:
-        console.print(f"  {r['train_source']:<50} {r['eval_model']:<16} {r['accuracy']:>10.4f}")
-    console.print()
-
-
 def _load_json(path: Path):
     with open(path) as f:
         return json.load(f)
+
+
+def _mirror_artifact(src: Path, dst: Path) -> str:
+    """Make `src` available at `dst` via a symlink (preferred) or copy.
+
+    Used to propagate generation-side inputs the student needs into the
+    teacher's --output-dir, so the student can operate from a single
+    --input-dir regardless of whether teachers were run in-place or to a
+    per-task sweep directory.
+    """
+    import shutil
+
+    if dst.exists() or dst.is_symlink():
+        return "exists"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Relative symlink so the tree remains portable when moved.
+        rel = os.path.relpath(src.resolve(), start=dst.parent.resolve())
+        os.symlink(rel, dst)
+        return "symlink"
+    except OSError:
+        shutil.copy2(src, dst)
+        return "copy"
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
@@ -221,7 +248,7 @@ def main() -> None:
     pipeline_t0 = time.perf_counter()
 
     parser = argparse.ArgumentParser(
-        description="Strategic distillation — Stages 3–6 (consumes generation output)."
+        description="Strategic distillation — Stages 3 & 4 (teacher ADS/PoE generation)."
     )
     parser.add_argument("--input-dir", required=True, type=str,
                         help="Directory produced by run_pipeline_generation.py "
@@ -232,15 +259,15 @@ def main() -> None:
                              "compatible on seed/data/teacher/proxy_student/"
                              "generation.* for the cached artifacts to be valid.")
     parser.add_argument("--output-dir", type=str, default=None,
-                        help="Destination for teacher/, student/, results.json, "
-                             "RESULTS.md. Defaults to --input-dir. Use a "
-                             "per-task dir when multiple distillation jobs "
-                             "share one generation cache.")
+                        help="Destination for teacher/ traces and the teacher "
+                             "cache consumed by run_pipeline_student.py. "
+                             "Defaults to --input-dir. Use a per-task dir when "
+                             "multiple teacher jobs share one generation cache.")
     args = parser.parse_args()
 
     in_dir = Path(args.input_dir)
     cache_dir = in_dir / "cache"
-    snapshot_path = Path(args.config) if args.config else in_dir / "config_snapshot.yaml"
+    snapshot_path = Path(args.config) if args.config else in_dir / CONFIG_SNAPSHOT_NAME
     done_marker = in_dir / GENERATION_DONE_MARKER
 
     required = [
@@ -261,7 +288,7 @@ def main() -> None:
 
     out_dir = ensure_dir(Path(args.output_dir) if args.output_dir else in_dir)
 
-    _separator("PIPELINE CONFIG (distillation)")
+    _separator("PIPELINE CONFIG (teachers, Stages 3–4)")
     console.print(f"  Input (cache):    {in_dir}")
     console.print(f"  Output:           {out_dir}")
     console.print(f"  Config:           {snapshot_path}"
@@ -272,7 +299,6 @@ def main() -> None:
     console.print(f"  Seed:             {cfg.run.seed}")
     console.print(f"  Teacher model:    {cfg.model.teacher}")
     console.print(f"  Proxy student:    {cfg.model.proxy_student}")
-    console.print(f"  Student model:    {cfg.model.student}")
     console.print(f"  Teacher methods:")
     console.print(f"    standard (from cache):    {cfg.teachers.standard}")
     console.print(f"    antidistillation_lams:    {cfg.teachers.antidistillation_lams}")
@@ -280,10 +306,8 @@ def main() -> None:
     console.print(f"    poe_gammas:               {cfg.teachers.poe_gammas}")
     console.print(f"    strategic_poe_gammas:     {cfg.teachers.strategic_poe_gammas}")
     console.print(f"    strategic_beta_teachers:  {cfg.teachers.strategic_beta_teachers}")
-    console.print(f"  Student modes:    {cfg.distill.student_modes}")
-    console.print(f"  beta_s_values:    {cfg.distill.beta_s_values}")
-    console.print(f"  penalty_transform: {cfg.distill.penalty_transform}")
-    console.print(f"  teacher_sign:     {cfg.distill.teacher_sign}")
+    console.print(f"    penalty_transform:        {cfg.distill.penalty_transform}")
+    console.print(f"    teacher_sign:             {cfg.distill.teacher_sign}")
     if torch.cuda.is_available():
         console.print(f"  GPU:              {torch.cuda.get_device_name(0)}")
         console.print(f"  {_gpu_mem()}")
@@ -311,8 +335,10 @@ def main() -> None:
     )
 
     # ── Load cache from generation ───────────────────────────────────────
+    # Stages 3 & 4 need only proxy_grads + accumulated teacher_rows/phase_times;
+    # holdout_full.json is student-side (run_distill) and is just propagated
+    # through to the student via a symlink later.
     t = _stage_start("Loading generation cache")
-    holdout_full: list[dict] = _load_json(cache_dir / CACHE_HOLDOUT_FULL)
     teacher_rows_path = cache_dir / CACHE_TEACHER_ROWS
     phase_times_path = cache_dir / CACHE_PHASE_TIMES
     teacher_rows: list[dict] = _load_json(teacher_rows_path) if teacher_rows_path.exists() else []
@@ -332,8 +358,7 @@ def main() -> None:
         std_status = "no"
     _stage_end(
         "Loading generation cache", t,
-        extra=(f"holdout={len(holdout_full)}, grad_keys={len(proxy_grads)}, "
-               f"standard_train={std_status}"),
+        extra=(f"grad_keys={len(proxy_grads)}, standard_train={std_status}"),
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -497,122 +522,53 @@ def main() -> None:
     phase_times["4_poe_family"] = time.perf_counter() - phase_t0
     console.print(f"[{_now()}] STAGE 4 completed in {_fmt_dur(phase_times['4_poe_family'])}")
 
-    _log_teacher_summary(teacher_rows, teacher_train_sources)
-
-    # ══════════════════════════════════════════════════════════════════════
-    # STAGE 5: Student distillation & evaluation
-    # ══════════════════════════════════════════════════════════════════════
-    _separator("STAGE 5: STUDENT DISTILLATION & EVALUATION")
-    phase_t0 = time.perf_counter()
-
     del teacher_model, teacher_tok
     _flush_vram("teacher model (no longer needed)")
 
-    student_rows: list[dict] = []
-
-    for source_name, train_traces in teacher_train_sources.items():
-        for mode in cfg.distill.student_modes:
-            # strategic_fd uses configurable beta_s; naive always uses 1.0.
-            betas = cfg.distill.beta_s_values if mode == "strategic_fd" else [1.0]
-
-            for beta_s in betas:
-                set_seed(cfg.run.seed)
-
-                # ── Train ─────────────────────────────────────────────
-                label = f"Student train | src={source_name} | {mode} | beta_s={beta_s}"
-                t = _stage_start(label)
-                model_dir = ensure_dir(out_dir / "student" / source_name / f"{mode}_beta_{beta_s}")
-
-                n_tr = len(train_traces)
-                n_ok = sum(1 for x in train_traces if x.get("correct", False))
-                console.print(
-                    f"[{_now()}]   Train traces: {n_tr} total, {n_ok} correct "
-                    f"({n_ok / max(n_tr, 1):.4f})"
-                )
-
-                stats, student_model, student_tok = run_distill(
-                    cfg=cfg, train_traces=train_traces, holdout_traces=holdout_full,
-                    output_dir=model_dir, device=device, mode=mode, beta_s=beta_s,
-                )
-
-                parts = []
-                if stats:
-                    parts.append(f"mean_a={stats.get('mean_a', 0.0):.4f}")
-                    parts.append(f"frac_top20={stats.get('frac_mass_top20', 0.0):.4f}")
-                    if "train_loss" in stats:
-                        parts.append(f"loss={stats['train_loss']:.4f}")
-                parts.append(_gpu_mem())
-                _stage_end(label, t, extra=", ".join(parts))
-
-                # ── Evaluate ──────────────────────────────────────────
-                set_seed(cfg.run.seed)
-                label = f"Student eval | src={source_name} | {mode} | beta_s={beta_s} | test"
-                t = _stage_start(label)
-                compact, inspection = generate_teacher_traces(
-                    cfg=cfg, dataset=splits["test"], format_prompt=format_prompt,
-                    method_name="standard", device=device,
-                    model=student_model, tokenizer=student_tok,
-                )
-                out_base = out_dir / "student" / source_name
-                write_json(compact, out_base / f"test_{mode}_beta_{beta_s}.json")
-                write_markdown_examples(
-                    compact[:n_samples],
-                    out_base / f"test_{mode}_beta_{beta_s}.md",
-                    title=f"test {mode} beta_s={beta_s} on {source_name}",
-                )
-                acc = sum(1 for r in compact if r["correct"]) / max(len(compact), 1)
-                _stage_end(label, t, extra=_trace_stats(compact))
-
-                notes = "" if mode == "naive" else f"beta_s={beta_s}"
-                if stats:
-                    sn = (f"mean_a={stats.get('mean_a', 0.0):.4f}, "
-                          f"frac_mass_top20={stats.get('frac_mass_top20', 0.0):.4f}")
-                    notes = f"{notes}, {sn}" if notes else sn
-                student_rows.append({
-                    "train_source": source_name,
-                    "eval_model": f"student_{mode}",
-                    "accuracy": acc,
-                    "notes": notes,
-                })
-                write_json(
-                    inspection[:n_samples],
-                    out_dir / "inspection" / f"{source_name}_{mode}_beta_{beta_s}.json",
-                )
-
-                del student_model, student_tok
-                _flush_vram()
-
-    phase_times["5_student"] = time.perf_counter() - phase_t0
-    console.print(f"[{_now()}] STAGE 5 completed in {_fmt_dur(phase_times['5_student'])}")
-    _log_student_summary(student_rows)
+    _log_teacher_summary(teacher_rows, teacher_train_sources)
 
     # ══════════════════════════════════════════════════════════════════════
-    # STAGE 6: Final results
+    # Persist artifacts consumed by run_pipeline_student.py
     # ══════════════════════════════════════════════════════════════════════
-    _separator("STAGE 6: FINAL RESULTS")
-    results_rows = teacher_rows + student_rows
-    t = _stage_start("Writing results")
-    write_json(results_rows, out_dir / "results.json")
-    report = build_results_report(
-        results_rows,
-        dataset=cfg.data.dataset_name,
-        teacher=cfg.model.teacher,
-        student=cfg.model.student,
+    _separator("WRITING CACHE FOR STUDENT")
+    t = _stage_start("Saving teacher cache")
+    out_cache_dir = ensure_dir(out_dir / "cache")
+    write_json(teacher_train_sources, out_cache_dir / CACHE_TEACHER_TRAIN_SOURCES)
+    write_json(teacher_rows, out_cache_dir / CACHE_TEACHER_ROWS)
+    write_json(phase_times, out_dir / CACHE_PHASE_TIMES)
+    total_traces = sum(len(v) for v in teacher_train_sources.values())
+    _stage_end(
+        "Saving teacher cache", t,
+        extra=(f"methods={len(teacher_train_sources)}, traces={total_traces}, "
+               f"teacher_rows={len(teacher_rows)}"),
     )
-    (out_dir / "RESULTS.md").write_text(report)
-    # Persist the updated phase_times (now including stages 3–5) alongside
-    # this task's outputs, so array jobs sharing one input-dir do not race
-    # on the generation cache file.
-    write_json(phase_times, out_dir / "phase_times.json")
-    _stage_end("Writing results", t, extra=f"rows={len(results_rows)}")
+
+    # Mirror the generation-side inputs the student needs, so a single
+    # --input-dir=<out_dir> is enough downstream even when out_dir != in_dir.
+    if out_dir.resolve() != in_dir.resolve():
+        t = _stage_start("Mirroring generation artifacts for student")
+        links = []
+        for rel in (
+            Path(CONFIG_SNAPSHOT_NAME),
+            Path("cache") / CACHE_HOLDOUT_FULL,
+        ):
+            src = in_dir / rel
+            dst = out_dir / rel
+            if not src.exists():
+                raise FileNotFoundError(f"Expected generation artifact missing: {src}")
+            how = _mirror_artifact(src, dst)
+            links.append(f"{rel}:{how}")
+        _stage_end("Mirroring generation artifacts for student", t, extra=", ".join(links))
+
+    (out_dir / TEACHERS_DONE_MARKER).write_text(datetime.now().isoformat() + "\n")
 
     # ── Final summary ─────────────────────────────────────────────────────
     total = time.perf_counter() - pipeline_t0
-    _separator("PIPELINE COMPLETE")
+    _separator("TEACHERS COMPLETE")
     console.print(f"  Output:           {out_dir}")
-    console.print(f"  Wall time:        {_fmt_dur(total)} (distillation only)")
+    console.print(f"  Wall time:        {_fmt_dur(total)} (Stages 3–4 only)")
     console.print(f"  Teacher methods:  {len(teacher_train_sources)}")
-    console.print(f"  Student runs:     {len(student_rows)}")
+    console.print(f"  Train traces:     {total_traces} across all methods")
     if torch.cuda.is_available():
         console.print(f"  Peak GPU mem:     {torch.cuda.max_memory_allocated() / 1e9:.1f}GB")
     console.print()
@@ -621,7 +577,8 @@ def main() -> None:
         pct = dur / total * 100 if total > 0 else 0
         console.print(f"    {name:<25} {_fmt_dur(dur):>10}  ({pct:5.1f}%)")
     console.print()
-    console.print(report)
+    console.print(f"  Next step:")
+    console.print(f"    python scripts/run_pipeline_student.py --input-dir {out_dir}")
 
 
 if __name__ == "__main__":

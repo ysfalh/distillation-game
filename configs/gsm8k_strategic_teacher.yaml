@@ -31,7 +31,7 @@ generation:
   answer_force_max_new_tokens: 32
   batch_size: 240
   greedy: false
-  strategic_eta_prefix: 0.25
+  strategic_eta_prefix: 0.1
   strategic_lambda_max: null
 
 teachers:

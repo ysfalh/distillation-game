@@ -2,14 +2,15 @@
 """
 Strategic distillation — generation pipeline (Stages 1 & 2 only).
 
-Produces artifacts consumed by run_pipeline_distillation.py:
+Produces artifacts consumed by run_pipeline_teachers.py (and, transitively,
+run_pipeline_student.py):
   - Standard teacher traces on holdout (always) and on train (if teachers.standard).
   - Proxy-student holdout gradients  g = mean ∇_θ L_holdout(proxy).
-  - Config snapshot + cache manifests so distillation resumes deterministically.
+  - Config snapshot + cache manifests so later stages resume deterministically.
 
 Intended for cluster use: for a fixed (seed, dataset, teacher, proxy_student,
-generation.*) tuple, the artifacts here are shared across many distillation
-sweeps. Run once per such tuple; then invoke run_pipeline_distillation.py any
+generation.*) tuple, the artifacts here are shared across many teacher/student
+sweeps. Run once per such tuple; then invoke run_pipeline_teachers.py any
 number of times against the resulting --output-dir.
 
 Usage:
@@ -59,7 +60,7 @@ if _hf_disable_progress_bar is not None:
 
 
 # Cache file layout (under <output-dir>/cache/) — keep in sync with
-# run_pipeline_distillation.py.
+# run_pipeline_teachers.py and run_pipeline_student.py.
 CACHE_PROXY_GRADS = "proxy_grads.pt"
 CACHE_HOLDOUT_FULL = "holdout_full.json"
 CACHE_TEACHER_STANDARD_TRAIN = "teacher_standard_train.json"
@@ -140,7 +141,7 @@ def main() -> None:
                         help="YAML config (same schema as scripts/run_pipeline.py).")
     parser.add_argument("--output-dir", required=True, type=str,
                         help="Destination directory for generation artifacts. "
-                             "Consumed by run_pipeline_distillation.py.")
+                             "Consumed by run_pipeline_teachers.py.")
     args = parser.parse_args()
 
     cfg = FullConfig.from_yaml(args.config)
@@ -325,9 +326,9 @@ def main() -> None:
     console.print(f"[{_now()}] STAGE 2 completed in {_fmt_dur(phase_times['2_proxy_grads'])}")
 
     # ══════════════════════════════════════════════════════════════════════
-    # Persist artifacts consumed by run_pipeline_distillation.py
+    # Persist artifacts consumed by run_pipeline_teachers.py
     # ══════════════════════════════════════════════════════════════════════
-    _separator("WRITING CACHE FOR DISTILLATION")
+    _separator("WRITING CACHE FOR TEACHERS")
     t = _stage_start("Saving cache")
     # Move grads to CPU before pickling so downstream can choose its own device.
     proxy_grads_cpu = {k: v.detach().to("cpu").contiguous() for k, v in proxy_grads.items()}
@@ -358,7 +359,7 @@ def main() -> None:
         console.print(f"    {name:<25} {_fmt_dur(dur):>10}  ({pct:5.1f}%)")
     console.print()
     console.print(f"  Next step:")
-    console.print(f"    python scripts/run_pipeline_distillation.py --input-dir {out_dir}")
+    console.print(f"    python scripts/run_pipeline_teachers.py --input-dir {out_dir}")
 
 
 if __name__ == "__main__":
