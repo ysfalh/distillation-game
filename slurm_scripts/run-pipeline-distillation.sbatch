@@ -6,7 +6,7 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-5
+#SBATCH --array=0-7
 
 # ─────────────────────────────────────────────────────────────────────────
 # Strategic distillation — DISTILLATION stage (Stages 3–6) as an array sweep.
@@ -61,8 +61,8 @@ fi
 
 # ── Sweep definition (keep in lockstep with run-strategic-teacher.sbatch) ──
 METHODS=(ads poe)
-ADS_LAMS=(0.03 0.05 0.1)
-POE_GAMMAS=(0.6 0.7 0.8)
+ADS_LAMS=(0.03 0.05 0.1 0.25)
+POE_GAMMAS=(0.5 0.6 0.7 0.8)
 
 # Non-strategic baselines trained alongside the strategic variant in every
 # task of the corresponding family. Pick the lambda/gamma you want to compare
