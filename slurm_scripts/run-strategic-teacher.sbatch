@@ -6,7 +6,7 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-5
+#SBATCH --array=0-8
 
 source $HOME/nlphw/my_project.env
 mkdir -p logs
@@ -17,8 +17,8 @@ export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
 
 
 METHODS=(ads poe)
-ADS_LAMS=(0.01 0.03 0.05)
-POE_GAMMAS=(0.5 0.6 0.7)
+ADS_LAMS=(0.01 0.03 0.05 0.1)
+POE_GAMMAS=(0.3 0.4 0.5 0.6)
 
 METHOD_IDX=$((SLURM_ARRAY_TASK_ID / 3))
 VALUE_IDX=$((SLURM_ARRAY_TASK_ID % 3))
