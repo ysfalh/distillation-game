@@ -364,6 +364,7 @@ def generate_teacher_traces(
                 StrategicAntidistillationLogitsProcessor(
                     lam=lam or 0.0,
                     eta_prefix=cfg.generation.strategic_eta_prefix,
+                    lambda_min=(lam or 0.0) * tau,
                     lambda_max=cfg.generation.strategic_lambda_max,
                     eps=cfg.generation.eps,
                     get_logits_plus_minus=logits_builder,

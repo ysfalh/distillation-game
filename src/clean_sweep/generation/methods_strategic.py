@@ -261,15 +261,21 @@ class StrategicAntidistillationLogitsProcessor(LogitsProcessor):
         logp_minus = torch.log_softmax(logits_minus, dim=-1)
         delta_logprob = (logp_plus - logp_minus) / (2.0 * self.eps)
 
-        self.state._set_current_token_values(self.teacher_sign * delta_logprob, input_ids)
+        # Paper value: v_grad = -<grad L, grad log p>.
+        # Our plus/minus proxies are built as theta ± eps * grad L, so
+        # delta_logprob ≈ +<grad L, grad log p>  ⇒  v_grad = -delta_logprob.
+        value = -delta_logprob
 
-        penalty = apply_penalty_transform(delta_logprob, self.penalty_transform, self.beta_teacher)
+        self.state._set_current_token_values(value, input_ids)
+
+        penalty = apply_penalty_transform(value, self.penalty_transform, self.beta_teacher)
         effective_lam = self.state.dynamic_scale(
             self.lam * self.temperature,
             min_value=self.lambda_min,
             max_value=self.lambda_max,
         )
-        shift = self.teacher_sign * effective_lam.unsqueeze(1) * penalty
+        # Q_teacher ∝ P exp(-lam * v_grad)  ⇒  logit shift = -lam * T(v_grad).
+        shift = -effective_lam.unsqueeze(1) * penalty
         new_logits = scores.float() + shift
 
         if self.debug_every > 0 and input_ids.shape[1] % self.debug_every == 0:
