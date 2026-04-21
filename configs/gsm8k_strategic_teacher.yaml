@@ -29,7 +29,7 @@ generation:
   answer_force: true
   answer_force_suffix: "\n\n**Final Answer**\n\\[\\boxed{"
   answer_force_max_new_tokens: 32
-  batch_size: 144
+  batch_size: 100
   greedy: false
   strategic_eta_prefix: 0.1
   strategic_lambda_max: null
