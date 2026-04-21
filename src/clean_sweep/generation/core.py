@@ -115,27 +115,37 @@ class CachedModelWrapper:
 
 
 def build_proxy_plus_minus(cfg: FullConfig, tokenizer: Any, device: torch.device, grad_dict: dict[str, torch.Tensor]) -> tuple[CachedModelWrapper, CachedModelWrapper]:
-    base = AutoModelForCausalLM.from_pretrained(
-        cfg.model.proxy_student,
-        trust_remote_code=True,
-        torch_dtype=get_dtype(cfg.model.torch_dtype),
-        attn_implementation=cfg.model.attn_implementation,
-    )
-    base = base.to(device)
-    eps = cfg.generation.eps
+    # Build each perturbed proxy from a fresh `from_pretrained` load so the
+    # weights see exactly one `add_(g, alpha=sign*eps)` in the target dtype —
+    # bit-identical to the previous base + clone_with_sign pattern (which
+    # round-tripped through fp32 CPU, a no-op for finite bf16 values), while
+    # peaking at 2 proxy copies on GPU instead of 3.
+    import gc
 
-    def clone_with_sign(sign: float) -> Any:
-        model = AutoModelForCausalLM.from_config(base.config)
-        model.load_state_dict(base.state_dict(), strict=True)
-        model = model.to(device=device, dtype=get_dtype(cfg.model.torch_dtype))
+    eps = cfg.generation.eps
+    dtype = get_dtype(cfg.model.torch_dtype)
+
+    def _build(sign: float) -> Any:
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.model.proxy_student,
+            trust_remote_code=True,
+            torch_dtype=dtype,
+            attn_implementation=cfg.model.attn_implementation,
+        ).to(device)
         with torch.no_grad():
             for name, param in model.named_parameters():
-                if name in grad_dict and grad_dict[name].shape == param.shape:
-                    param.add_(grad_dict[name].to(device=param.device, dtype=param.dtype), alpha=sign * eps)
+                g = grad_dict.get(name)
+                if g is not None and g.shape == param.shape:
+                    param.add_(g.to(device=param.device, dtype=param.dtype), alpha=sign * eps)
         return model
 
-    plus = clone_with_sign(1.0)
-    minus = clone_with_sign(-1.0)
+    plus = _build(1.0)
+    minus = _build(-1.0)
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     return CachedModelWrapper(plus), CachedModelWrapper(minus)
 
 
