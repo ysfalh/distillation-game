@@ -47,8 +47,9 @@ mkdir -p logs
 
 export HF_HOME="/scratch/mhaghifam/hf_cache"
 export HF_TOKEN="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"
-export HF_HOME="/scratch/mhaghifam/hf_cache"
 export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
+# Reduce allocator fragmentation; helps student eval fit on 48 GB GPUs.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # ── Resolve TEA_DIR ──────────────────────────────────────────────────────
 # Accept either an explicit TEA_DIR, or compose it from INPUT_DIR + TASK_NAME.

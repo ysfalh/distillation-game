@@ -286,6 +286,15 @@ def main() -> None:
     _separator("STAGE 5: STUDENT DISTILLATION & EVALUATION")
     phase_t0 = time.perf_counter()
 
+    # Student test-set eval uses a separate batch size so it can run on a
+    # smaller GPU than the teacher stages. Falls back to generation.batch_size.
+    if cfg.distill.eval_batch_size is not None:
+        cfg.generation.batch_size = cfg.distill.eval_batch_size
+        console.print(
+            f"[{_now()}]   Using eval_batch_size={cfg.distill.eval_batch_size} "
+            f"for student test-set generation"
+        )
+
     student_rows: list[dict] = []
 
     for source_name, train_traces in teacher_train_sources.items():

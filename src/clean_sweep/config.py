@@ -42,6 +42,11 @@ class GenerationConfig(BaseModel):
     answer_force_suffix: str = "\n\n**Final Answer**\n\\[\\boxed{"
     answer_force_max_new_tokens: int = 32
     batch_size: int = 8
+    # Per-stage overrides. When None, fall back to `batch_size`. ADS holds 3
+    # models on-GPU so typically needs a much smaller batch than standard or
+    # PoE generation.
+    ads_batch_size: Optional[int] = None
+    poe_batch_size: Optional[int] = None
     greedy: bool = False
     strategic_eta_prefix: float = 0.1
     strategic_lambda_max: Optional[float] = None
@@ -78,6 +83,10 @@ class DistillConfig(BaseModel):
     holdout_grad_batch_size: int = 2
     trace_weights_fd_batch_size: int = 8
     teacher_sign: float = -1.0
+    # Student test-set eval batch size (stage 5). When None, falls back to
+    # `generation.batch_size`. Lower this on small GPUs — Llama-3.2-3B's KV
+    # cache at bs=144, seq=1536 alone is ~25 GB.
+    eval_batch_size: Optional[int] = None
 
 
 class ArtifactConfig(BaseModel):

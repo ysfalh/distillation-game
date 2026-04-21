@@ -388,6 +388,7 @@ def generate_teacher_traces(
                     gamma=gamma,
                     eta_prefix=cfg.generation.strategic_eta_prefix,
                     gamma_max=cfg.generation.strategic_gamma_max,
+                    gamma_min=gamma,
                     get_proxy_logits=poe_logits,
                     attention_mask=batch_attention_mask,
                     ignore_token_ids={
@@ -429,6 +430,20 @@ def generate_teacher_traces(
                 "reasoning": reasoning,
                 "full_text": text,
             })
+
+    # Free proxy KV caches before answer-forcing. `_answer_force` only uses
+    # the teacher, but `plus`/`minus` (ADS) and `poe_wrapper` (PoE) still hold
+    # their KV caches from the last main-loop batch (~11 GB combined at
+    # batch_size=100). Reclaiming them prevents OOM during the teacher's
+    # longer AF prefill (prompt + trace + suffix).
+    for wrapper in proxy_wrappers:
+        wrapper.reset_cache()
+    if poe_wrapper is not None:
+        poe_wrapper.reset_cache()
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     if cfg.generation.answer_force:
         final_texts = _answer_force(traces, model=model, tokenizer=tokenizer, cfg=cfg, batch_size=batch_size, device=device)

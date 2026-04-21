@@ -29,7 +29,9 @@ generation:
   answer_force: true
   answer_force_suffix: "\n\n**Final Answer**\n\\[\\boxed{"
   answer_force_max_new_tokens: 32
-  batch_size: 128
+  batch_size: 192        # stage 1 (standard teacher only) — tuned for 94 GB GPU
+  ads_batch_size: 100     # stage 3 (teacher + 2 proxies) — tuned for 94 GB GPU
+  poe_batch_size: 200    # stage 4 (teacher + 1 proxy) — tuned for 94 GB GPU
   greedy: false
   strategic_eta_prefix: 0.1
   strategic_lambda_max: null
@@ -62,6 +64,7 @@ distill:
   save_final_model: false
   holdout_grad_batch_size: 6
   trace_weights_fd_batch_size: 12
+  eval_batch_size: 64    # stage 5 student test-set eval — tuned for 48 GB GPU
 
 artifacts:
   save_full_text_traces: false

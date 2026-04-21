@@ -47,6 +47,8 @@ mkdir -p logs
 
 export HF_HOME="/scratch/mhaghifam/hf_cache"
 export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
+# Reduce allocator fragmentation; helps student eval fit on 48 GB GPUs.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 : "${INPUT_DIR:?INPUT_DIR must be set (the generation output dir that contains distill_* subdirs)}"
 

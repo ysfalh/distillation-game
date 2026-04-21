@@ -381,6 +381,14 @@ def main() -> None:
     _separator("STAGE 3: ANTIDISTILLATION-FAMILY TEACHERS")
     phase_t0 = time.perf_counter()
 
+    # ADS holds teacher + 2 proxies on-GPU; use a tighter batch than stage 1.
+    if cfg.generation.ads_batch_size is not None:
+        cfg.generation.batch_size = cfg.generation.ads_batch_size
+        console.print(
+            f"[{_now()}]   Using ads_batch_size={cfg.generation.ads_batch_size} "
+            f"for Stage 3 generation"
+        )
+
     ads_wrappers = None
     if need_ads:
         t = _stage_start("Building ADS proxy +/-")
@@ -468,6 +476,14 @@ def main() -> None:
     # ══════════════════════════════════════════════════════════════════════
     _separator("STAGE 4: POE-FAMILY TEACHERS")
     phase_t0 = time.perf_counter()
+
+    # PoE only holds teacher + 1 proxy on-GPU; can run a larger batch than ADS.
+    if cfg.generation.poe_batch_size is not None:
+        cfg.generation.batch_size = cfg.generation.poe_batch_size
+        console.print(
+            f"[{_now()}]   Using poe_batch_size={cfg.generation.poe_batch_size} "
+            f"for Stage 4 generation"
+        )
 
     poe_wrapper = None
     if need_poe:
