@@ -42,7 +42,7 @@
 #   ${TEA_DIR}/phase_times.json   (updated with stage 5 timings)
 # ─────────────────────────────────────────────────────────────────────────
 
-source /share/project/haghifam-projects/venv-low-memory/bin/activate
+source $HOME/nlphw/my_project.env
 cd /share/project/haghifam-projects/strategic-distillation
 mkdir -p logs
 
