@@ -6,7 +6,7 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-7   # 4 ADS lambdas (0..3) + 4 PoE gammas (4..7)
+#SBATCH --array=0-2   # 3 ADS lambdas (0..2)
 
 # ─────────────────────────────────────────────────────────────────────────
 # Strategic distillation — TEACHERS stage (Stages 3 & 4), ADS + PoE sweep.
@@ -17,18 +17,15 @@
 # teacher outputs this job produces.
 #
 # Sweep layout:
-#   tasks 0..3 → strategic ADS with lam ∈ ADS_LAMS
-#                (each also trains the non-strategic ADS baseline at
-#                 lam = ADS_BASELINE_LAM for comparison)
-#   tasks 4..7 → strategic PoE with gamma ∈ POE_GAMMAS
-#                (each also trains the non-strategic PoE baseline at
-#                 gamma = POE_BASELINE_GAMMA for comparison)
+#   tasks 0..N_ADS-1 → strategic ADS with lam ∈ ADS_LAMS
+#                      (each also trains the non-strategic ADS baseline at
+#                       lam = ADS_BASELINE_LAM for comparison)
 #
 # All tasks SHARE one generation cache (teacher standard traces + proxy
 # gradients), produced by run-pipeline-generation.sbatch, and write their
 # teacher outputs into PER-TASK subdirectories to avoid collisions.
 #
-# --array size must equal N_ADS + N_POE; the matching student array in
+# --array size must equal N_ADS; the matching student array in
 # run-pipeline-student.sbatch must have the same size (the student sbatch
 # auto-discovers distill_* subdirs, so it works as long as --array <= count).
 #
@@ -45,7 +42,7 @@
 #     --export=ALL,INPUT_DIR=${GEN_OUTDIR} \
 #     slurm_scripts/run-pipeline-teachers.sbatch)
 #   sbatch --dependency=afterok:${TEA_JID} \
-#     --array=0-7 \
+#     --array=0-2 \
 #     --export=ALL,INPUT_DIR=${GEN_OUTDIR} \
 #     slurm_scripts/run-pipeline-student.sbatch
 # ─────────────────────────────────────────────────────────────────────────
@@ -75,32 +72,28 @@ if [ ! -f "${INPUT_DIR}/GENERATION_DONE" ]; then
 fi
 
 # ── Sweep definition ─────────────────────────────────────────────────────
-ADS_LAMS=(0.03 0.05 0.08 0.15)
-POE_GAMMAS=(0.5 0.6 0.7 0.8)
+ADS_LAMS=(0.001 0.005 0.01)
 
-# Non-strategic baselines trained alongside each strategic variant. Kept
+# Non-strategic baseline trained alongside each strategic variant. Kept
 # fixed across tasks so the baseline column in RESULTS.md is a clean control.
-ADS_BASELINE_LAM=0.08
-POE_BASELINE_GAMMA=0.75
+ADS_BASELINE_LAM=0.085
 
 N_ADS=${#ADS_LAMS[@]}
-N_POE=${#POE_GAMMAS[@]}
-N_TOTAL=$((N_ADS + N_POE))
+N_TOTAL=${N_ADS}
 
 if [ "${SLURM_ARRAY_TASK_ID}" -ge "${N_TOTAL}" ]; then
     echo "ERROR: Array task ${SLURM_ARRAY_TASK_ID} but sweep has only ${N_TOTAL} points." >&2
-    echo "       Shrink --array to 0-$((N_TOTAL - 1)) or extend ADS_LAMS/POE_GAMMAS." >&2
+    echo "       Shrink --array to 0-$((N_TOTAL - 1)) or extend ADS_LAMS." >&2
     exit 1
 fi
 
 TMP_CFG="/tmp/pipeline_teachers_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.yaml"
 
-if [ "${SLURM_ARRAY_TASK_ID}" -lt "${N_ADS}" ]; then
-    VAL=${ADS_LAMS[${SLURM_ARRAY_TASK_ID}]}
-    TASK_NAME="strategic_ads_lam_${VAL}"
-    echo "=== Task ${SLURM_ARRAY_TASK_ID} | strategic ADS | lam=${VAL} "\
+VAL=${ADS_LAMS[${SLURM_ARRAY_TASK_ID}]}
+TASK_NAME="strategic_ads_lam_${VAL}"
+echo "=== Task ${SLURM_ARRAY_TASK_ID} | strategic ADS | lam=${VAL} "\
 "(baseline lam=${ADS_BASELINE_LAM}) ==="
-    python3 -c "
+python3 -c "
 import yaml
 cfg = yaml.safe_load(open('${BASE_CFG}'))
 cfg['run']['run_name'] = '${TASK_NAME}'
@@ -110,22 +103,6 @@ cfg['teachers']['poe_gammas'] = []
 cfg['teachers']['strategic_poe_gammas'] = []
 yaml.safe_dump(cfg, open('${TMP_CFG}', 'w'), sort_keys=False)
 "
-else
-    VAL=${POE_GAMMAS[$((SLURM_ARRAY_TASK_ID - N_ADS))]}
-    TASK_NAME="strategic_poe_gamma_${VAL}"
-    echo "=== Task ${SLURM_ARRAY_TASK_ID} | strategic PoE | gamma=${VAL} "\
-"(baseline gamma=${POE_BASELINE_GAMMA}) ==="
-    python3 -c "
-import yaml
-cfg = yaml.safe_load(open('${BASE_CFG}'))
-cfg['run']['run_name'] = '${TASK_NAME}'
-cfg['teachers']['antidistillation_lams'] = []
-cfg['teachers']['strategic_antidistillation_lams'] = []
-cfg['teachers']['poe_gammas'] = [${POE_BASELINE_GAMMA}]
-cfg['teachers']['strategic_poe_gammas'] = [${VAL}]
-yaml.safe_dump(cfg, open('${TMP_CFG}', 'w'), sort_keys=False)
-"
-fi
 
 OUT_DIR="${INPUT_DIR}/distill_${TASK_NAME}"
 mkdir -p "${OUT_DIR}"
