@@ -42,7 +42,8 @@
 #   ${TEA_DIR}/phase_times.json   (updated with stage 5 timings)
 # ─────────────────────────────────────────────────────────────────────────
 
-source $HOME/nlphw/my_project.env
+source /share/project/haghifam-projects/venv-low-memory/bin/activate
+cd /share/project/haghifam-projects/strategic-distillation
 mkdir -p logs
 
 export HF_HOME="/scratch/mhaghifam/hf_cache"
