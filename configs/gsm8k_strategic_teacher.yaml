@@ -64,7 +64,7 @@ distill:
   save_final_model: false
   holdout_grad_batch_size: 6
   trace_weights_fd_batch_size: 12
-  eval_batch_size: 64    # stage 5 student test-set eval — tuned for 48 GB GPU
+  eval_batch_size: 200    # stage 5 student test-set eval — tuned for 48 GB GPU
 
 artifacts:
   save_full_text_traces: false
