@@ -92,12 +92,28 @@ echo "  Host:              $(hostname)"
 echo "  Array job.task:    ${SLURM_ARRAY_JOB_ID}.${SLURM_ARRAY_TASK_ID}"
 echo
 
+# Per-task config override: start from the snapshot the teacher stage mirrored
+# into ${TEA_DIR}, then flip student-side knobs for this sweep. Keeping the
+# override here (not in the teacher sbatch) scopes it to the student stage
+# only; the teacher stage's symlinked snapshot stays untouched for reference.
+BASE_CFG="${TEA_DIR}/config_snapshot.yaml"
+TMP_CFG="/tmp/pipeline_student_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.yaml"
+python3 -c "
+import yaml
+cfg = yaml.safe_load(open('${BASE_CFG}'))
+cfg.setdefault('distill', {})['exclude_standard_teacher'] = True
+yaml.safe_dump(cfg, open('${TMP_CFG}', 'w'), sort_keys=False)
+"
+
 # In-place: student artifacts (student/, inspection/, results.json,
 # RESULTS.md, phase_times.json) land next to the teacher/ + cache/ produced
 # by the teacher stage.
 python scripts/run_pipeline_student.py \
     --input-dir  "${TEA_DIR}" \
+    --config     "${TMP_CFG}" \
     --output-dir "${TEA_DIR}"
+
+rm -f "${TMP_CFG}"
 
 echo
 echo "=== Task ${SLURM_ARRAY_TASK_ID} complete ==="

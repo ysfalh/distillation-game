@@ -84,9 +84,24 @@ echo "  Host:              $(hostname)"
 echo "  Job:               ${SLURM_JOB_ID}"
 echo
 
+# Per-task config override: start from the snapshot the teacher stage mirrored
+# into ${TEA_DIR}, then flip student-side knobs for this run. Scoping the
+# override here keeps the checked-in config the "full-comparison" default.
+BASE_CFG="${TEA_DIR}/config_snapshot.yaml"
+TMP_CFG="/tmp/pipeline_student_single_${SLURM_JOB_ID}.yaml"
+python3 -c "
+import yaml
+cfg = yaml.safe_load(open('${BASE_CFG}'))
+cfg.setdefault('distill', {})['exclude_standard_teacher'] = True
+yaml.safe_dump(cfg, open('${TMP_CFG}', 'w'), sort_keys=False)
+"
+
 python scripts/run_pipeline_student.py \
     --input-dir  "${TEA_DIR}" \
+    --config     "${TMP_CFG}" \
     --output-dir "${TEA_DIR}"
+
+rm -f "${TMP_CFG}"
 
 echo
 echo "=== Student run complete ==="

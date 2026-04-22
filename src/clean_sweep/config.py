@@ -87,6 +87,11 @@ class DistillConfig(BaseModel):
     # `generation.batch_size`. Lower this on small GPUs — Llama-3.2-3B's KV
     # cache at bs=144, seq=1536 alone is ~25 GB.
     eval_batch_size: Optional[int] = None
+    # When True, skip training students on the "teacher_standard" (clean) source
+    # in Stage 5. Teacher-side rows for the clean teacher (produced upstream in
+    # the generation stage) are unaffected. Default False preserves the full
+    # baseline comparison.
+    exclude_standard_teacher: bool = False
 
 
 class ArtifactConfig(BaseModel):

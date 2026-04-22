@@ -295,6 +295,15 @@ def main() -> None:
             f"for student test-set generation"
         )
 
+    if cfg.distill.exclude_standard_teacher and "teacher_standard" in teacher_train_sources:
+        console.print(
+            f"[{_now()}]   Excluding 'teacher_standard' source from student training "
+            f"(cfg.distill.exclude_standard_teacher=True)"
+        )
+        teacher_train_sources = {
+            k: v for k, v in teacher_train_sources.items() if k != "teacher_standard"
+        }
+
     student_rows: list[dict] = []
 
     for source_name, train_traces in teacher_train_sources.items():
