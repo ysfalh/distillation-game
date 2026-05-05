@@ -215,6 +215,7 @@ def _log_config(
     console.print(f"  Proxy student:     {cfg.model.proxy_student}")
     console.print(f"  Student model:     {cfg.model.student}")
     console.print(f"  Student tokenizer: {cfg.model.student_tokenizer}")
+    console.print(f"  Attention backend: {cfg.model.attn_implementation}")
     console.print(f"  Student modes:     {cfg.distill.student_modes}")
     console.print(f"  beta_s_values:     {cfg.distill.beta_s_values}")
     console.print(f"  penalty_transform: {cfg.distill.penalty_transform}")
@@ -311,6 +312,12 @@ def main() -> None:
         help="Tokenizer/chat template for the student.",
     )
     parser.add_argument(
+        "--attn-implementation",
+        default="sdpa",
+        choices=["eager", "sdpa", "flash_attention_2"],
+        help="Attention backend for the student run. Defaults to sdpa.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate config and saved traces without loading models or writing outputs.",
@@ -335,6 +342,7 @@ def main() -> None:
         raise ValueError(f"This saved-trace runner expects GSM8K traces, got {cfg.data.dataset_name!r}")
     cfg.model.student = args.student
     cfg.model.student_tokenizer = args.student_tokenizer
+    cfg.model.attn_implementation = args.attn_implementation
     cfg.run.output_dir = str(output_dir.parent)
     cfg.run.run_name = output_dir.name
 

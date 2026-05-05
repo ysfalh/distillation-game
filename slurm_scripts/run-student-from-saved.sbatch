@@ -33,6 +33,7 @@ INPUT_DIR="${INPUT_DIR:-gsm8k_output_small}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/gsm8k_llama1b_from_saved_teachers}"
 STUDENT="${STUDENT:-meta-llama/Llama-3.2-1B}"
 STUDENT_TOKENIZER="${STUDENT_TOKENIZER:-meta-llama/Llama-3.2-1B-Instruct}"
+ATTN_IMPLEMENTATION="${ATTN_IMPLEMENTATION:-sdpa}"
 DRY_RUN="${DRY_RUN:-0}"
 
 if [ ! -d "${INPUT_DIR}" ]; then
@@ -58,6 +59,7 @@ ARGS=(
     --output-dir "${OUTPUT_DIR}"
     --student "${STUDENT}"
     --student-tokenizer "${STUDENT_TOKENIZER}"
+    --attn-implementation "${ATTN_IMPLEMENTATION}"
 )
 
 if [ "${DRY_RUN}" = "1" ] || [ "${DRY_RUN}" = "true" ] || [ "${DRY_RUN}" = "TRUE" ]; then
@@ -70,6 +72,7 @@ echo "  Input traces:      ${INPUT_DIR}"
 echo "  Output:            ${OUTPUT_DIR}"
 echo "  Student:           ${STUDENT}"
 echo "  Student tokenizer: ${STUDENT_TOKENIZER}"
+echo "  Attention backend: ${ATTN_IMPLEMENTATION}"
 echo "  Dry run:           ${DRY_RUN}"
 echo "  Host:              $(hostname)"
 echo "  Job:               ${SLURM_JOB_ID}"
