@@ -10,4 +10,4 @@ mkdir -p logs
 
 source $HOME/nlphw/my_project.env
 
-python scripts/query_trace_frontier.py 
+python frontier-llms/query_trace_frontier.py

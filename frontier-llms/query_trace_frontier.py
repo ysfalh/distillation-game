@@ -21,7 +21,7 @@ from src.clean_sweep.data.gsm8k import load_gsm8k_splits
 # ---------------------------------------------------------------------------
 # API keys — set these in your environment, never hardcode
 # ---------------------------------------------------------------------------
-api_key_gemini = 'AIzaSyATpem4fvrfqLKeM5C92AAGkZcK2qSMa_4'
+api_key_gemini = 'fill-me'
 api_key_openai = 'fill-me'
 api_key_claude = 'fill-me'
 

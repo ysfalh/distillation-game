@@ -31,7 +31,7 @@ else
 fi
 
 echo "=== Array task $SLURM_ARRAY_TASK_ID | Seed: $SEED | Trace: $TRACE | Config: $CONFIG ==="
-python scripts/run_real_trace.py \
+python frontier-llms/run_real_trace.py \
     --config $CONFIG \
     --trace-name $TRACE \
     --seed $SEED
