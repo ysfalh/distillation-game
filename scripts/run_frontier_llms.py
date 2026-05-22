@@ -76,7 +76,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-FRONTIER_DIR = REPO_ROOT / "frontier-llms"
+FRONTIER_DIR = REPO_ROOT /scripts/"frontier-llms"
 
 # Defaults for the orchestrator. The model strings mirror those used in the
 # original __main__ block of query_trace_frontier.py and in the historical

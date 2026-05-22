@@ -10,7 +10,7 @@ Reads raw train JSONs from (relative to repo root):
 Writes scored JSONs and PDFs under the same plot-quality/{gsm8k,math}/ directories.
 
 Usage:
-    python trace-quality-llm.py [--datasets gsm8k math] [--max-examples 0] [--plot-only]
+    python trace_quality_llm.py [--datasets gsm8k math] [--max-examples 0] [--plot-only]
 """
 
 API_KEY = 'fill-me'
