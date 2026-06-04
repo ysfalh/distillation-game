@@ -1,6 +1,6 @@
 # The Distillation Game
 
-Code for the experiments in *The Distillation Game: Adaptive Attacks & Efficient Defenses*.
+Code for the experiments in [*The Distillation Game: Adaptive Attacks & Efficient Defenses*](https://arxiv.org/abs/2605.22737) by Youssef Allouah*, Mahdi Haghifam*, Sanmi Koyejo, and Reza Shokri.
 
 The repository provides an end-to-end pipeline for teacher-generation and student-distillation experiments. Supported teacher methods include standard decoding, antidistillation, and product-of-experts; supported student modes are passive (`naive`) and adaptive (`strategic_fd`).
 
