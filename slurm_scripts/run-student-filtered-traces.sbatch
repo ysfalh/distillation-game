@@ -6,13 +6,14 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-26%8
+#SBATCH --array=0-8%8
 
 # Naive-SFT students on degeneracy-filtered GSM8K traces.
 # One array task = one (filter level, seed, teacher source).
 #
-# The unfiltered baseline is not part of this array. Add `unfiltered` back to
-# LEVELS below and widen --array if you need to rerun it.
+# The two-rule filter has no calibrated thresholds, so there is a single level
+# instead of the old accept_* series. The unfiltered baseline is not part of
+# this array; add `unfiltered` to LEVELS and widen --array to rerun it.
 #
 # The filtered trace directories are gitignored, so build them first:
 #   python filtering_traces/run_filter_sweep.py --input-dir gsm8k_output_small --write-filtered
@@ -32,7 +33,7 @@ CONFIG="${CONFIG:-configs/gsm8k.yaml}"
 STUDENT="meta-llama/Llama-3.2-3B"
 STUDENT_TOKENIZER="meta-llama/Llama-3.2-3B-Instruct"
 
-LEVELS=(accept_0.95 accept_0.97 accept_0.99)
+LEVELS=(simple)
 SEEDS=($(python -c "import yaml; print(*yaml.safe_load(open('${CONFIG}'))['run']['seeds'])"))
 SOURCES=(standard ads poe)
 
@@ -63,6 +64,12 @@ else
     INPUT_DIR="filtering_traces/filtered/gsm8k_output_small/${LEVEL}"
 fi
 OUTPUT_DIR="outputs/filtered_traces/${LEVEL}/seed_${SEED}/${SOURCE}"
+
+if [ ! -d "$INPUT_DIR" ]; then
+    echo "ERROR: ${INPUT_DIR} does not exist. Build it with:" >&2
+    echo "       python filtering_traces/run_filter_sweep.py --input-dir gsm8k_output_small --write-filtered" >&2
+    exit 1
+fi
 
 echo "=== Array task $SLURM_ARRAY_TASK_ID | Level: $LEVEL | Seed: $SEED | Source: $SOURCE ==="
 python scripts/run_student_from_saved_traces.py \

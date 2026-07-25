@@ -1,30 +1,50 @@
-# Degeneracy filter sweep
+# Degeneracy filter report
 
 - Traces: `gsm8k_output_small`
 - Tokenizer: `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B`
-- `max_new_tokens`: 1024
 - Conditions: `standard` (n=5238), `antidistillation_lam_0.055` (n=5238), `poe_gamma_0.7` (n=5238)
 
-Thresholds are calibrated on the Standard teacher alone and then applied unchanged to every condition. Each row is one target acceptance rate for Standard. The realized rate is higher than the target and saturates once the target gets aggressive, because the hard loop rules and the 64-token minimum removal gate fire regardless of the calibrated thresholds.
+Two fixed rules, identical for every condition and calibrated on nothing. A trace is dropped if it contains a letter from an unexpected script (run of 1 or more) or if any single token repeats 8 or more times in a row.
 
-## Dropped traces by target Standard acceptance
+## Dropped traces
 
-| target accept | kept standard | rep thr | off-script thr | standard dropped | antidistillation_lam_0.055 dropped | poe_gamma_0.7 dropped |
-|---|---|---|---|---|---|---|
-| 0.900 | 0.9800 | 0.0401 | 0.0000 | 105 (2.00%) | 525 (10.02%) | 332 (6.34%) |
-| 0.950 | 0.9800 | 0.0605 | 0.0000 | 105 (2.00%) | 525 (10.02%) | 332 (6.34%) |
-| 0.970 | 0.9843 | 0.0763 | 0.0000 | 82 (1.57%) | 512 (9.77%) | 325 (6.20%) |
-| 0.980 | 0.9876 | 0.0853 | 0.0000 | 65 (1.24%) | 504 (9.62%) | 325 (6.20%) |
-| 0.990 | 0.9924 | 0.1036 | 0.0000 | 40 (0.76%) | 486 (9.28%) | 323 (6.17%) |
-| 0.995 | 0.9952 | 0.1142 | 0.0000 | 25 (0.48%) | 480 (9.16%) | 322 (6.15%) |
-| 1.000 | 0.9994 | 0.2393 | 0.0101 | 3 (0.06%) | 465 (8.88%) | 314 (5.99%) |
+| condition | n | dropped | drop rate | strange script | repetition | both | accuracy before | accuracy after |
+|---|---|---|---|---|---|---|---|---|
+| standard | 5238 | 1 | 0.02% | 0.00% | 0.02% | 0.00% | 0.8805 | 0.8805 |
+| antidistillation_lam_0.055 | 5238 | 578 | 11.03% | 10.02% | 1.85% | 0.84% | 0.8165 | 0.8348 |
+| poe_gamma_0.7 | 5238 | 213 | 4.07% | 3.53% | 0.53% | 0.00% | 0.8347 | 0.8462 |
 
-## Operating point: target acceptance 0.990
+The two rules overlap, so `strange script` and `repetition` do not sum to the drop rate. Sampled traces are in `trace_degenerate/`.
 
-| condition | n | dropped | drop rate | loop | off-language | accuracy before | accuracy after |
-|---|---|---|---|---|---|---|---|
-| standard | 5238 | 40 | 0.76% | 0.76% | 0.00% | 0.8805 | 0.8800 |
-| antidistillation_lam_0.055 | 5238 | 486 | 9.28% | 6.03% | 4.56% | 0.8165 | 0.8445 |
-| poe_gamma_0.7 | 5238 | 323 | 6.17% | 4.01% | 2.58% | 0.8347 | 0.8600 |
+## Sensitivity to the repetition bar
 
-`loop` and `off-language` overlap, so they do not sum to the drop rate. Sampled traces from this operating point are in `trace_degenerate/`.
+The strange-script rule is unchanged in every row; only `min_consecutive_copies` moves.
+
+| min consecutive copies | standard dropped | antidistillation_lam_0.055 dropped | poe_gamma_0.7 dropped |
+|---|---|---|---|
+| 4 | 29 (0.55%) | 611 (11.66%) | 256 (4.89%) |
+| 6 | 2 (0.04%) | 580 (11.07%) | 213 (4.07%) |
+| 8 | 1 (0.02%) | 578 (11.03%) | 213 (4.07%) |
+| 12 | 0 (0.00%) | 575 (10.98%) | 210 (4.01%) |
+| 16 | 0 (0.00%) | 573 (10.94%) | 206 (3.93%) |
+| 32 | 0 (0.00%) | 571 (10.90%) | 206 (3.93%) |
+
+## Characters that triggered the strange-script rule
+
+| character | name | count |
+|---|---|---|
+| `水` | CJK UNIFIED IDEOGRAPH-6C34 | 25339 |
+| `泉` | CJK UNIFIED IDEOGRAPH-6CC9 | 24599 |
+| `的` | CJK UNIFIED IDEOGRAPH-7684 | 4225 |
+| `猕` | CJK UNIFIED IDEOGRAPH-7315 | 3551 |
+| `苟` | CJK UNIFIED IDEOGRAPH-82DF | 2063 |
+| `了` | CJK UNIFIED IDEOGRAPH-4E86 | 1365 |
+| `个` | CJK UNIFIED IDEOGRAPH-4E2A | 1226 |
+| `桀` | CJK UNIFIED IDEOGRAPH-6840 | 1226 |
+| `数` | CJK UNIFIED IDEOGRAPH-6570 | 1098 |
+| `刺` | CJK UNIFIED IDEOGRAPH-523A | 1032 |
+| `是` | CJK UNIFIED IDEOGRAPH-662F | 1011 |
+| `脉` | CJK UNIFIED IDEOGRAPH-8109 | 970 |
+| `猴` | CJK UNIFIED IDEOGRAPH-7334 | 918 |
+| `量` | CJK UNIFIED IDEOGRAPH-91CF | 917 |
+| `激` | CJK UNIFIED IDEOGRAPH-6FC0 | 849 |

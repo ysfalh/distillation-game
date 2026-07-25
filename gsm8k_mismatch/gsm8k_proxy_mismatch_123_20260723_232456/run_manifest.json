@@ -1,0 +1,38 @@
+{
+  "run_id": "gsm8k_proxy_mismatch_123_20260723_232456",
+  "dataset": "gsm8k",
+  "teacher": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+  "proxy_student": "Qwen/Qwen2.5-1.5B",
+  "student": "meta-llama/Llama-3.2-3B",
+  "seed": 123,
+  "split_sizes": {
+    "train": 5238,
+    "holdout": 2235,
+    "test": 1209
+  },
+  "planned_methods": {
+    "teachers": {
+      "standard": false,
+      "antidistillation_lams": [
+        0.01,
+        0.02,
+        0.03,
+        0.035
+      ],
+      "poe_gammas": [
+        0.7,
+        0.65
+      ],
+      "strategic_beta_teachers": []
+    },
+    "students": {
+      "modes": [
+        "naive",
+        "strategic_fd"
+      ],
+      "beta_s_values": [
+        0.5
+      ]
+    }
+  }
+}
