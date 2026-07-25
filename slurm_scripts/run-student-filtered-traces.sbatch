@@ -20,7 +20,7 @@
 source $HOME/nlphw/my_project.env
 mkdir -p logs
 
-export HF_TOKEN="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"
+export HF_TOKEN="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"
 export HF_HOME="/scratch/mhaghifam/hf_cache"
 export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
 
