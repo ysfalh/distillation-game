@@ -1,0 +1,260 @@
+{
+  "input_dir": "math_output_small",
+  "tokenizer": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+  "max_new_tokens": 1024,
+  "operating_point": 0.99,
+  "sweep": [
+    {
+      "target_acceptance": 0.9,
+      "thresholds": {
+        "repetition_fraction": 0.0322265625,
+        "off_script_fraction": 0.007273817870218902
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 520,
+          "drop_rate": 0.104,
+          "loop_rate": 0.0332,
+          "language_rate": 0.0716,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6189732142857143
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 772,
+          "drop_rate": 0.1544,
+          "loop_rate": 0.0824,
+          "language_rate": 0.0854,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.6258278145695364
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 454,
+          "drop_rate": 0.0908,
+          "loop_rate": 0.0606,
+          "language_rate": 0.042,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.635943686757589
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.95,
+      "thresholds": {
+        "repetition_fraction": 0.05223196760399738,
+        "off_script_fraction": 0.015213887279049555
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 407,
+          "drop_rate": 0.0814,
+          "loop_rate": 0.0332,
+          "language_rate": 0.049,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6163727411278032
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 679,
+          "drop_rate": 0.1358,
+          "loop_rate": 0.0824,
+          "language_rate": 0.066,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.6227725063642675
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 454,
+          "drop_rate": 0.0908,
+          "loop_rate": 0.0606,
+          "language_rate": 0.042,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.635943686757589
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.97,
+      "thresholds": {
+        "repetition_fraction": 0.06454353578629009,
+        "off_script_fraction": 0.022194449357124602
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 296,
+          "drop_rate": 0.0592,
+          "loop_rate": 0.0298,
+          "language_rate": 0.0298,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6177721088435374
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 622,
+          "drop_rate": 0.1244,
+          "loop_rate": 0.0814,
+          "language_rate": 0.0546,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.6192325262677022
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 446,
+          "drop_rate": 0.0892,
+          "loop_rate": 0.0596,
+          "language_rate": 0.0412,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6352657004830918
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.98,
+      "thresholds": {
+        "repetition_fraction": 0.0791015625,
+        "off_script_fraction": 0.02642935062891072
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 209,
+          "drop_rate": 0.0418,
+          "loop_rate": 0.0224,
+          "language_rate": 0.0198,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6155291170945523
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 569,
+          "drop_rate": 0.1138,
+          "loop_rate": 0.0764,
+          "language_rate": 0.0488,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.6167907921462423
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 432,
+          "drop_rate": 0.0864,
+          "loop_rate": 0.0566,
+          "language_rate": 0.0412,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6339754816112084
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.99,
+      "thresholds": {
+        "repetition_fraction": 0.10546978097507334,
+        "off_script_fraction": 0.03646691656425348
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 112,
+          "drop_rate": 0.0224,
+          "loop_rate": 0.0124,
+          "language_rate": 0.01,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6143617021276596
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 509,
+          "drop_rate": 0.1018,
+          "loop_rate": 0.0732,
+          "language_rate": 0.0398,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.6143397906924961
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 411,
+          "drop_rate": 0.0822,
+          "loop_rate": 0.0528,
+          "language_rate": 0.04,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6323817825234256
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.995,
+      "thresholds": {
+        "repetition_fraction": 0.1308642578125001,
+        "off_script_fraction": 0.04753328398132699
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 66,
+          "drop_rate": 0.0132,
+          "loop_rate": 0.0082,
+          "language_rate": 0.005,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6139035265504662
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 479,
+          "drop_rate": 0.0958,
+          "loop_rate": 0.0708,
+          "language_rate": 0.0356,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.612917496129175
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 400,
+          "drop_rate": 0.08,
+          "loop_rate": 0.0506,
+          "language_rate": 0.0398,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6313043478260869
+        }
+      }
+    },
+    {
+      "target_acceptance": 1.0,
+      "thresholds": {
+        "repetition_fraction": 0.986328125,
+        "off_script_fraction": 0.15789473684210525
+      },
+      "conditions": {
+        "standard": {
+          "n": 5000,
+          "dropped": 25,
+          "drop_rate": 0.005,
+          "loop_rate": 0.005,
+          "language_rate": 0.0,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6128643216080402
+        },
+        "antidistillation_lam_0.08": {
+          "n": 5000,
+          "dropped": 431,
+          "drop_rate": 0.0862,
+          "loop_rate": 0.0678,
+          "language_rate": 0.028,
+          "accuracy_before": 0.5924,
+          "accuracy_after": 0.6108557671262859
+        },
+        "poe_gamma_0.75": {
+          "n": 5000,
+          "dropped": 381,
+          "drop_rate": 0.0762,
+          "loop_rate": 0.0476,
+          "language_rate": 0.0386,
+          "accuracy_before": 0.6116,
+          "accuracy_after": 0.6304394890668976
+        }
+      }
+    }
+  ]
+}

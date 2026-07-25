@@ -1,0 +1,260 @@
+{
+  "input_dir": "gsm8k_output_small",
+  "tokenizer": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+  "max_new_tokens": 1024,
+  "operating_point": 0.99,
+  "sweep": [
+    {
+      "target_acceptance": 0.9,
+      "thresholds": {
+        "repetition_fraction": 0.04010042169000379,
+        "off_script_fraction": 0.0
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 105,
+          "drop_rate": 0.02004581901489118,
+          "loop_rate": 0.02004581901489118,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8794077537502435
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 525,
+          "drop_rate": 0.1002290950744559,
+          "loop_rate": 0.06796487208858343,
+          "language_rate": 0.04562810232913326,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.8448970931466158
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 332,
+          "drop_rate": 0.06338297059946545,
+          "loop_rate": 0.04219167621229477,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.8603750509580106
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.95,
+      "thresholds": {
+        "repetition_fraction": 0.060546875,
+        "off_script_fraction": 0.0
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 105,
+          "drop_rate": 0.02004581901489118,
+          "loop_rate": 0.02004581901489118,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8794077537502435
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 525,
+          "drop_rate": 0.1002290950744559,
+          "loop_rate": 0.06796487208858343,
+          "language_rate": 0.04562810232913326,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.8448970931466158
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 332,
+          "drop_rate": 0.06338297059946545,
+          "loop_rate": 0.04219167621229477,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.8603750509580106
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.97,
+      "thresholds": {
+        "repetition_fraction": 0.0763342346245201,
+        "off_script_fraction": 0.0
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 82,
+          "drop_rate": 0.015654830087819777,
+          "loop_rate": 0.015654830087819777,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8793638479441428
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 512,
+          "drop_rate": 0.09774723176785033,
+          "loop_rate": 0.06529209621993128,
+          "language_rate": 0.04562810232913326,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.8449005501481168
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 325,
+          "drop_rate": 0.06204658266513936,
+          "loop_rate": 0.04066437571592211,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.860166904131895
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.98,
+      "thresholds": {
+        "repetition_fraction": 0.08531757057123812,
+        "off_script_fraction": 0.0
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 65,
+          "drop_rate": 0.012409316533027874,
+          "loop_rate": 0.012409316533027874,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8797602938333655
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 504,
+          "drop_rate": 0.09621993127147767,
+          "loop_rate": 0.06376479572355861,
+          "language_rate": 0.04562810232913326,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.8447401774397972
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 325,
+          "drop_rate": 0.06204658266513936,
+          "loop_rate": 0.040473463153875525,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.860166904131895
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.99,
+      "thresholds": {
+        "repetition_fraction": 0.10357105152027028,
+        "off_script_fraction": 0.0
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 40,
+          "drop_rate": 0.007636502481863307,
+          "loop_rate": 0.007636502481863307,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8799538283955367
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 486,
+          "drop_rate": 0.09278350515463918,
+          "loop_rate": 0.060328369606720125,
+          "language_rate": 0.04562810232913326,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.844486531986532
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 323,
+          "drop_rate": 0.0616647575410462,
+          "loop_rate": 0.04009163802978236,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.8600203458799593
+        }
+      }
+    },
+    {
+      "target_acceptance": 0.995,
+      "thresholds": {
+        "repetition_fraction": 0.11418304557591291,
+        "off_script_fraction": 0.0
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 25,
+          "drop_rate": 0.004772814051164567,
+          "loop_rate": 0.004772814051164567,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8802992518703242
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 480,
+          "drop_rate": 0.09163802978235967,
+          "loop_rate": 0.059182894234440626,
+          "language_rate": 0.04562810232913326,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.844682639764607
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 322,
+          "drop_rate": 0.06147384497899962,
+          "loop_rate": 0.03990072546773578,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.8598454027664768
+        }
+      }
+    },
+    {
+      "target_acceptance": 1.0,
+      "thresholds": {
+        "repetition_fraction": 0.2392578125,
+        "off_script_fraction": 0.010071942446043165
+      },
+      "conditions": {
+        "standard": {
+          "n": 5238,
+          "dropped": 3,
+          "drop_rate": 0.000572737686139748,
+          "loop_rate": 0.000572737686139748,
+          "language_rate": 0.0,
+          "accuracy_before": 0.8804887361588393,
+          "accuracy_after": 0.8806112702960841
+        },
+        "antidistillation_lam_0.055": {
+          "n": 5238,
+          "dropped": 465,
+          "drop_rate": 0.08877434135166094,
+          "loop_rate": 0.056891943489881636,
+          "language_rate": 0.04486445208094693,
+          "accuracy_before": 0.816533027873234,
+          "accuracy_after": 0.8445422166352399
+        },
+        "poe_gamma_0.7": {
+          "n": 5238,
+          "dropped": 314,
+          "drop_rate": 0.05994654448262696,
+          "loop_rate": 0.03837342497136312,
+          "language_rate": 0.02577319587628866,
+          "accuracy_before": 0.8346697212676594,
+          "accuracy_after": 0.8590576766856215
+        }
+      }
+    }
+  ]
+}

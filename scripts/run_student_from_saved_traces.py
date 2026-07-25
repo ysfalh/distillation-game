@@ -13,6 +13,11 @@ This runner consumes legacy artifacts like `gsm8k_output_small/` directly:
 It reuses the existing distillation/evaluation code and does not regenerate
 teacher-side traces. Strategic-FD student weights are recomputed for the
 configured student model.
+
+By default the run config comes from the input directory's snapshot and every
+teacher source and student mode is trained. `--config`, `--seed`, `--sources`,
+and `--modes` narrow that down, which is what the filtered-trace slurm array
+uses to put one training per job.
 """
 from __future__ import annotations
 
@@ -49,6 +54,11 @@ SOURCE_FILES = {
     "teacher_standard": "train_standard.json",
     "teacher_antidistillation_lam_0.055": "train_antidistillation_lam_0.055.json",
     "teacher_poe_gamma_0.7": "train_poe_gamma_0.7.json",
+}
+SOURCE_ALIASES = {
+    "standard": "teacher_standard",
+    "ads": "teacher_antidistillation_lam_0.055",
+    "poe": "teacher_poe_gamma_0.7",
 }
 
 
@@ -179,6 +189,7 @@ def _source_accuracy(rows: list[dict[str, Any]]) -> float:
 
 def _load_saved_traces(
     input_dir: Path,
+    sources: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     required = [input_dir / CONFIG_SNAPSHOT_NAME, input_dir / HOLDOUT_FILE]
     required.extend(input_dir / filename for filename in SOURCE_FILES.values())
@@ -187,9 +198,10 @@ def _load_saved_traces(
             raise FileNotFoundError(f"Required saved-trace artifact missing: {path}")
 
     holdout = _load_trace_list(input_dir / HOLDOUT_FILE)
+    selected = sources or list(SOURCE_FILES)
     train_sources = {
-        source_name: _load_trace_list(input_dir / filename)
-        for source_name, filename in SOURCE_FILES.items()
+        source_name: _load_trace_list(input_dir / SOURCE_FILES[source_name])
+        for source_name in selected
     }
     return holdout, train_sources
 
@@ -318,6 +330,32 @@ def main() -> None:
         help="Attention backend for the student run. Defaults to sdpa.",
     )
     parser.add_argument(
+        "--config",
+        default=None,
+        type=str,
+        help="Take the run config from this YAML instead of the input directory's snapshot.",
+    )
+    parser.add_argument(
+        "--seed",
+        default=None,
+        type=int,
+        help="Override the config seed. Only affects student training and sampling.",
+    )
+    parser.add_argument(
+        "--sources",
+        default=None,
+        nargs="+",
+        choices=sorted(SOURCE_ALIASES),
+        help="Teacher sources to train on. Defaults to all of them.",
+    )
+    parser.add_argument(
+        "--modes",
+        default=None,
+        nargs="+",
+        choices=["naive", "strategic_fd"],
+        help="Override the config's student modes.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate config and saved traces without loading models or writing outputs.",
@@ -337,7 +375,11 @@ def main() -> None:
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Required config snapshot missing: {snapshot_path}")
 
-    cfg = FullConfig.from_yaml(snapshot_path)
+    config_path = Path(args.config) if args.config else snapshot_path
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
+    cfg = FullConfig.from_yaml(config_path)
     if cfg.data.dataset_name != "gsm8k":
         raise ValueError(f"This saved-trace runner expects GSM8K traces, got {cfg.data.dataset_name!r}")
     cfg.model.student = args.student
@@ -345,9 +387,14 @@ def main() -> None:
     cfg.model.attn_implementation = args.attn_implementation
     cfg.run.output_dir = str(output_dir.parent)
     cfg.run.run_name = output_dir.name
+    if args.seed is not None:
+        cfg.run.seed = args.seed
+    if args.modes:
+        cfg.distill.student_modes = args.modes
+    sources = [SOURCE_ALIASES[alias] for alias in args.sources] if args.sources else None
 
     t = _stage_start("Loading saved teacher traces")
-    holdout_full, teacher_train_sources = _load_saved_traces(input_dir)
+    holdout_full, teacher_train_sources = _load_saved_traces(input_dir, sources)
     _stage_end(
         "Loading saved teacher traces",
         t,

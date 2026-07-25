@@ -14,6 +14,7 @@ outputs_from_cluster/
 plot-quality-seed42/
 plot-quality-seed43/
 plot-quality-seed44/
+filtering_traces/filtered/
 
 *.pyc
 *.pyo

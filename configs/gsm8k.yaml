@@ -1,5 +1,8 @@
 run:
   seed: 123
+  # Seeds for multi-seed sweeps such as the filtered-trace student array.
+  # Single-run scripts keep using `seed` above.
+  seeds: [123, 456, 789]
   output_dir: outputs
   run_name: gsm8k
   save_config_snapshot: true
