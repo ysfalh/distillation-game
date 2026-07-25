@@ -35,7 +35,9 @@ DEFAULT_TOKENIZER = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
 DEFAULT_MAX_NEW_TOKENS = 1024
 STANDARD_FILE = "train_standard.json"
 DEFAULT_ACCEPTANCE = [0.90, 0.95, 0.97, 0.98, 0.99, 0.995, 1.0]
-DEFAULT_FILTERED_POINTS = [0.95, 0.99, 1.0]
+# Targets below 0.95 drop exactly the same traces as 0.95, so materializing
+# them would train identical students.
+DEFAULT_FILTERED_POINTS = [0.95, 0.97, 0.99]
 # `run_student_from_saved_traces.py` refuses to load a trace directory unless
 # both of these sit next to the train files.
 PASSTHROUGH_FILES = ["config_snapshot.yaml", "holdout_standard_internal.json"]

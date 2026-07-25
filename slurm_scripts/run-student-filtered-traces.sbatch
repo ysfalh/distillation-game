@@ -20,7 +20,6 @@
 source $HOME/nlphw/my_project.env
 mkdir -p logs
 
-export HF_TOKEN="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"
 export HF_HOME="/scratch/mhaghifam/hf_cache"
 export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
 
@@ -28,7 +27,7 @@ CONFIG="configs/gsm8k.yaml"
 STUDENT="meta-llama/Llama-3.2-3B"
 STUDENT_TOKENIZER="meta-llama/Llama-3.2-3B-Instruct"
 
-LEVELS=(unfiltered accept_0.95 accept_0.99 accept_1.00)
+LEVELS=(unfiltered accept_0.95 accept_0.97 accept_0.99)
 SEEDS=(123 456 789)  # matches run.seeds in configs/gsm8k.yaml
 SOURCES=(standard ads poe)
 
