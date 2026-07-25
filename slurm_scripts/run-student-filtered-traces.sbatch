@@ -6,7 +6,7 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-35%4
+#SBATCH --array=0-35%8
 
 # Naive-SFT students on degeneracy-filtered GSM8K traces.
 # One array task = one (filter level, seed, teacher source).
@@ -25,17 +25,34 @@ export HF_HOME="/scratch/mhaghifam/hf_cache"
 export PYTHONPATH="$(pwd)/src:${PYTHONPATH}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-CONFIG="configs/gsm8k.yaml"
+CONFIG="${CONFIG:-configs/gsm8k.yaml}"
 STUDENT="meta-llama/Llama-3.2-3B"
 STUDENT_TOKENIZER="meta-llama/Llama-3.2-3B-Instruct"
 
 LEVELS=(unfiltered accept_0.95 accept_0.97 accept_0.99)
-SEEDS=(123 456 789)  # matches run.seeds in configs/gsm8k.yaml
+SEEDS=($(python -c "import yaml; print(*yaml.safe_load(open('${CONFIG}'))['run']['seeds'])"))
 SOURCES=(standard ads poe)
 
-LEVEL=${LEVELS[$((SLURM_ARRAY_TASK_ID / 9))]}
-SEED=${SEEDS[$(((SLURM_ARRAY_TASK_ID / 3) % 3))]}
-SOURCE=${SOURCES[$((SLURM_ARRAY_TASK_ID % 3))]}
+if [ ${#SEEDS[@]} -eq 0 ]; then
+    echo "ERROR: could not read run.seeds from ${CONFIG}" >&2
+    exit 1
+fi
+if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
+    echo "ERROR: no SLURM_ARRAY_TASK_ID, submit this with sbatch." >&2
+    exit 1
+fi
+
+# --array above is static, so say which range the config now implies.
+TOTAL=$(( ${#LEVELS[@]} * ${#SEEDS[@]} * ${#SOURCES[@]} ))
+if [ "${SLURM_ARRAY_TASK_ID}" -ge "${TOTAL}" ]; then
+    echo "ERROR: task ${SLURM_ARRAY_TASK_ID} of ${TOTAL} combinations." >&2
+    echo "       Resubmit with --array=0-$(( TOTAL - 1 ))" >&2
+    exit 1
+fi
+
+LEVEL=${LEVELS[$((SLURM_ARRAY_TASK_ID / (${#SEEDS[@]} * ${#SOURCES[@]})))]}
+SEED=${SEEDS[$(((SLURM_ARRAY_TASK_ID / ${#SOURCES[@]}) % ${#SEEDS[@]}))]}
+SOURCE=${SOURCES[$((SLURM_ARRAY_TASK_ID % ${#SOURCES[@]}))]}
 
 if [ "$LEVEL" = "unfiltered" ]; then
     INPUT_DIR="gsm8k_output_small"

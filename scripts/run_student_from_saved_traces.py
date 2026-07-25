@@ -190,15 +190,22 @@ def _source_accuracy(rows: list[dict[str, Any]]) -> float:
 def _load_saved_traces(
     input_dir: Path,
     sources: list[str] | None = None,
+    need_holdout: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
-    required = [input_dir / CONFIG_SNAPSHOT_NAME, input_dir / HOLDOUT_FILE]
-    required.extend(input_dir / filename for filename in SOURCE_FILES.values())
+    """Load only the trace files this run will actually read.
+
+    Sources that are not being trained and the holdout of a naive-only run are
+    never opened, so a trace directory holding just the needed files is valid.
+    """
+    selected = sources or list(SOURCE_FILES)
+    required = [input_dir / SOURCE_FILES[name] for name in selected]
+    if need_holdout:
+        required.append(input_dir / HOLDOUT_FILE)
     for path in required:
         if not path.exists():
             raise FileNotFoundError(f"Required saved-trace artifact missing: {path}")
 
-    holdout = _load_trace_list(input_dir / HOLDOUT_FILE)
-    selected = sources or list(SOURCE_FILES)
+    holdout = _load_trace_list(input_dir / HOLDOUT_FILE) if need_holdout else []
     train_sources = {
         source_name: _load_trace_list(input_dir / SOURCE_FILES[source_name])
         for source_name in selected
@@ -231,7 +238,8 @@ def _log_config(
     console.print(f"  Student modes:     {cfg.distill.student_modes}")
     console.print(f"  beta_s_values:     {cfg.distill.beta_s_values}")
     console.print(f"  penalty_transform: {cfg.distill.penalty_transform}")
-    console.print(f"  Holdout traces:    {len(holdout)}")
+    holdout_note = str(len(holdout)) if holdout else "not read (no strategic_fd)"
+    console.print(f"  Holdout traces:    {holdout_note}")
     console.print("  Train sources:")
     for source_name, rows in train_sources.items():
         console.print(
@@ -371,13 +379,13 @@ def main() -> None:
             "--output-dir must be outside --input-dir so saved teacher traces are never mutated"
         )
 
-    snapshot_path = input_dir / CONFIG_SNAPSHOT_NAME
-    if not snapshot_path.exists():
-        raise FileNotFoundError(f"Required config snapshot missing: {snapshot_path}")
-
-    config_path = Path(args.config) if args.config else snapshot_path
+    # Without --config the snapshot is the config, so it has to be there.
+    config_path = Path(args.config) if args.config else input_dir / CONFIG_SNAPSHOT_NAME
     if not config_path.exists():
-        raise FileNotFoundError(f"Config not found: {config_path}")
+        raise FileNotFoundError(
+            f"Config not found: {config_path}. Pass --config to read it from "
+            "outside the trace directory."
+        )
 
     cfg = FullConfig.from_yaml(config_path)
     if cfg.data.dataset_name != "gsm8k":
@@ -393,8 +401,13 @@ def main() -> None:
         cfg.distill.student_modes = args.modes
     sources = [SOURCE_ALIASES[alias] for alias in args.sources] if args.sources else None
 
+    # The holdout only feeds the strategic-FD gradient.
+    need_holdout = "strategic_fd" in cfg.distill.student_modes
+
     t = _stage_start("Loading saved teacher traces")
-    holdout_full, teacher_train_sources = _load_saved_traces(input_dir, sources)
+    holdout_full, teacher_train_sources = _load_saved_traces(
+        input_dir, sources, need_holdout
+    )
     _stage_end(
         "Loading saved teacher traces",
         t,
