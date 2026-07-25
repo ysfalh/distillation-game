@@ -172,6 +172,22 @@ def run_sweep(
     return sweep
 
 
+def staging_dir(final: Path) -> Path:
+    """Empty scratch directory next to where the level will end up."""
+    staging = final.parent / f".{final.name}.partial"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    return staging
+
+
+def publish(staging: Path, final: Path) -> None:
+    """Move a fully written directory into place, replacing any older one."""
+    if final.exists():
+        shutil.rmtree(final)
+    staging.replace(final)
+
+
 def write_filtered_datasets(
     input_dir: Path,
     out_root: Path,
@@ -191,13 +207,16 @@ def write_filtered_datasets(
     The dropped traces are kept under ``removed/accept_*`` purely for
     inspection.  Those directories lack the config snapshot and the holdout,
     so the student runner cannot load them by accident.
+
+    Each directory is staged and only then moved into place, so an interrupted
+    sweep leaves no half-written level for the student runner to trip over.
     """
     for target in targets:
         thresholds, scored = score_at(features, target, max_new_tokens)
-        folder = out_root / f"accept_{target:.2f}"
-        folder.mkdir(parents=True, exist_ok=True)
-        removed_folder = out_root / "removed" / f"accept_{target:.2f}"
-        removed_folder.mkdir(parents=True, exist_ok=True)
+        final_folder = out_root / f"accept_{target:.2f}"
+        final_removed = out_root / "removed" / f"accept_{target:.2f}"
+        folder = staging_dir(final_folder)
+        removed_folder = staging_dir(final_removed)
 
         manifest: dict[str, Any] = {
             "source_dir": str(input_dir),
@@ -239,11 +258,13 @@ def write_filtered_datasets(
                       "load in run_student_from_saved_traces.py")
 
         (folder / "filter_manifest.json").write_text(json.dumps(manifest, indent=2))
+        publish(folder, final_folder)
+        publish(removed_folder, final_removed)
         counts = ", ".join(
             f"{name}={entry['n_after']}(-{entry['n_dropped']})"
             for name, entry in manifest["conditions"].items()
         )
-        print(f"  {folder}: {counts}")
+        print(f"  {final_folder}: {counts}")
 
 
 def example_record(

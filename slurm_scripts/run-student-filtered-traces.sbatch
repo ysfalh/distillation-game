@@ -6,10 +6,13 @@
 #SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-35%8
+#SBATCH --array=0-26%8
 
 # Naive-SFT students on degeneracy-filtered GSM8K traces.
 # One array task = one (filter level, seed, teacher source).
+#
+# The unfiltered baseline is not part of this array. Add `unfiltered` back to
+# LEVELS below and widen --array if you need to rerun it.
 #
 # The filtered trace directories are gitignored, so build them first:
 #   python filtering_traces/run_filter_sweep.py --input-dir gsm8k_output_small --write-filtered
@@ -29,7 +32,7 @@ CONFIG="${CONFIG:-configs/gsm8k.yaml}"
 STUDENT="meta-llama/Llama-3.2-3B"
 STUDENT_TOKENIZER="meta-llama/Llama-3.2-3B-Instruct"
 
-LEVELS=(unfiltered accept_0.95 accept_0.97 accept_0.99)
+LEVELS=(accept_0.95 accept_0.97 accept_0.99)
 SEEDS=($(python -c "import yaml; print(*yaml.safe_load(open('${CONFIG}'))['run']['seeds'])"))
 SOURCES=(standard ads poe)
 
