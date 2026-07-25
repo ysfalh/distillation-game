@@ -18,10 +18,12 @@
 #   python scripts/aggregate_filtered_results.py
 
 source $HOME/nlphw/my_project.env
+cd /share/project/haghifam-projects/strategic-distillation
 mkdir -p logs
 
 export HF_HOME="/scratch/mhaghifam/hf_cache"
-export PYTHONPATH="${SLURM_SUBMIT_DIR}/src:${PYTHONPATH}"
+export PYTHONPATH="$(pwd)/src:${PYTHONPATH}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 CONFIG="configs/gsm8k.yaml"
 STUDENT="meta-llama/Llama-3.2-3B"
