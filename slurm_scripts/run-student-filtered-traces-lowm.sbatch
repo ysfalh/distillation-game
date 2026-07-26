@@ -6,20 +6,19 @@
 #SBATCH --constraint=48g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-8
+#SBATCH --array=0-26
 
-# Naive-SFT students on the two-rule degeneracy-filtered GSM8K traces.
-# One array task = one (seed, teacher source), all nine launched at once.
+# Naive-SFT students on the two-rule degeneracy-filtered GSM8K traces, for both
+# the matched (gsm8k_output_small) and mismatched-proxy
+# (gsm8k_output_small_mismatch) teachers. One array task = one (dataset,
+# teacher source, seed).
 #
-# This is the 48 GB version of run-student-filtered-traces.sbatch: same nine
-# runs, same output directories. Submit one or the other, never both, or the
-# two arrays will write over each other.
+# Do not submit this directly. Submit the prep job, which builds the filtered
+# traces, releases this array, and queues the report that follows it:
 #
-# The filtered trace directory is gitignored, so build it first:
-#   python filtering_traces/run_filter_sweep.py --input-dir gsm8k_output_small --write-filtered
+#   sbatch slurm_scripts/filter-traces-prep.sbatch
 #
-# Then collect the accuracies into markdown:
-#   python scripts/aggregate_filtered_results.py
+# The report lands in outputs/filtered_traces/RESULTS.md.
 
 source /share/project/haghifam-projects/venv-low-memory/bin/activate
 cd /share/project/haghifam-projects/strategic-distillation
@@ -33,9 +32,20 @@ CONFIG="${CONFIG:-configs/gsm8k.yaml}"
 STUDENT="meta-llama/Llama-3.2-3B"
 STUDENT_TOKENIZER="meta-llama/Llama-3.2-3B-Instruct"
 
-LEVEL=simple
+# `dataset|teacher source`. The mismatched folder has no standard teacher, and
+# poe_gamma_0.7 exists in both, which is why results are keyed by dataset too.
+COMBOS=(
+    "gsm8k_output_small|standard"
+    "gsm8k_output_small|antidistillation_lam_0.05"
+    "gsm8k_output_small|antidistillation_lam_0.055"
+    "gsm8k_output_small|poe_gamma_0.6"
+    "gsm8k_output_small|poe_gamma_0.7"
+    "gsm8k_output_small_mismatch|antidistillation_lam_0.03"
+    "gsm8k_output_small_mismatch|antidistillation_lam_0.035"
+    "gsm8k_output_small_mismatch|poe_gamma_0.65"
+    "gsm8k_output_small_mismatch|poe_gamma_0.7"
+)
 SEEDS=($(python -c "import yaml; print(*yaml.safe_load(open('${CONFIG}'))['run']['seeds'])"))
-SOURCES=(standard ads poe)
 
 if [ ${#SEEDS[@]} -eq 0 ]; then
     echo "ERROR: could not read run.seeds from ${CONFIG}" >&2
@@ -46,23 +56,34 @@ if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
     exit 1
 fi
 
-# --array above is static, so say which range the config now implies.
-TOTAL=$(( ${#SEEDS[@]} * ${#SOURCES[@]} ))
+# --array above is static, so say which range the combos and config now imply.
+TOTAL=$(( ${#COMBOS[@]} * ${#SEEDS[@]} ))
 if [ "${SLURM_ARRAY_TASK_ID}" -ge "${TOTAL}" ]; then
     echo "ERROR: task ${SLURM_ARRAY_TASK_ID} of ${TOTAL} combinations." >&2
     echo "       Resubmit with --array=0-$(( TOTAL - 1 ))" >&2
     exit 1
 fi
+if [ "${SLURM_ARRAY_TASK_COUNT:-${TOTAL}}" -lt "${TOTAL}" ]; then
+    echo "WARNING: this array has ${SLURM_ARRAY_TASK_COUNT} tasks but ${TOTAL} " \
+         "combinations exist, so some will never run. Widen --array to 0-$(( TOTAL - 1 ))." >&2
+fi
 
-SEED=${SEEDS[$((SLURM_ARRAY_TASK_ID / ${#SOURCES[@]}))]}
-SOURCE=${SOURCES[$((SLURM_ARRAY_TASK_ID % ${#SOURCES[@]}))]}
+COMBO=${COMBOS[$((SLURM_ARRAY_TASK_ID / ${#SEEDS[@]}))]}
+SEED=${SEEDS[$((SLURM_ARRAY_TASK_ID % ${#SEEDS[@]}))]}
+DATASET=${COMBO%%|*}
+SOURCE=${COMBO##*|}
 
-INPUT_DIR="filtering_traces/filtered/gsm8k_output_small/${LEVEL}"
+if [ "$DATASET" = "gsm8k_output_small_mismatch" ]; then
+    LEVEL="simple_mismatch"
+else
+    LEVEL="simple"
+fi
+INPUT_DIR="filtering_traces/filtered/${DATASET}/simple"
 OUTPUT_DIR="outputs/filtered_traces/${LEVEL}/seed_${SEED}/${SOURCE}"
 
 if [ ! -d "$INPUT_DIR" ]; then
     echo "ERROR: ${INPUT_DIR} does not exist. Build it with:" >&2
-    echo "       python filtering_traces/run_filter_sweep.py --input-dir gsm8k_output_small --write-filtered" >&2
+    echo "       python filtering_traces/run_filter_sweep.py --input-dir ${DATASET} --write-filtered" >&2
     exit 1
 fi
 

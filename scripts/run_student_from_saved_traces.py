@@ -6,9 +6,10 @@ This runner consumes legacy artifacts like `gsm8k_output_small/` directly:
 
   config_snapshot.yaml
   holdout_standard_internal.json
-  train_standard.json
-  train_antidistillation_lam_0.055.json
-  train_poe_gamma_0.7.json
+  train_<source>.json, one per teacher setting
+
+Every `train_*.json` in the directory is a trainable source, so a folder with
+new teacher settings works without touching this file.
 
 It reuses the existing distillation/evaluation code and does not regenerate
 teacher-side traces. Strategic-FD student weights are recomputed for the
@@ -50,15 +51,13 @@ _TORCH_IMPORT_ERROR: Exception | None = None
 
 CONFIG_SNAPSHOT_NAME = "config_snapshot.yaml"
 HOLDOUT_FILE = "holdout_standard_internal.json"
-SOURCE_FILES = {
-    "teacher_standard": "train_standard.json",
-    "teacher_antidistillation_lam_0.055": "train_antidistillation_lam_0.055.json",
-    "teacher_poe_gamma_0.7": "train_poe_gamma_0.7.json",
-}
+# Short names for the three sources the first arrays used. Any other source is
+# named by its trace stem, so a directory with new teacher settings such as
+# `poe_gamma_0.6` needs no change here.
 SOURCE_ALIASES = {
-    "standard": "teacher_standard",
-    "ads": "teacher_antidistillation_lam_0.055",
-    "poe": "teacher_poe_gamma_0.7",
+    "standard": "standard",
+    "ads": "antidistillation_lam_0.055",
+    "poe": "poe_gamma_0.7",
 }
 
 
@@ -187,9 +186,26 @@ def _source_accuracy(rows: list[dict[str, Any]]) -> float:
     return sum(1 for r in rows if r.get("correct", False)) / max(len(rows), 1)
 
 
+def _available_stems(input_dir: Path) -> list[str]:
+    """Trace stems present on disk, e.g. `standard`, `poe_gamma_0.6`."""
+    return [path.stem.removeprefix("train_") for path in sorted(input_dir.glob("train_*.json"))]
+
+
+def _resolve_sources(names: list[str] | None, input_dir: Path) -> dict[str, str]:
+    """Map the requested sources to their trace files.
+
+    Each name is either one of the short aliases or a trace stem. Without any
+    name every `train_*.json` in the directory is trained on.
+    """
+    stems = [SOURCE_ALIASES.get(name, name) for name in names] if names else _available_stems(input_dir)
+    if not stems:
+        raise FileNotFoundError(f"No train_*.json under {input_dir}")
+    return {f"teacher_{stem}": f"train_{stem}.json" for stem in stems}
+
+
 def _load_saved_traces(
     input_dir: Path,
-    sources: list[str] | None = None,
+    source_files: dict[str, str],
     need_holdout: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """Load only the trace files this run will actually read.
@@ -197,18 +213,20 @@ def _load_saved_traces(
     Sources that are not being trained and the holdout of a naive-only run are
     never opened, so a trace directory holding just the needed files is valid.
     """
-    selected = sources or list(SOURCE_FILES)
-    required = [input_dir / SOURCE_FILES[name] for name in selected]
-    if need_holdout:
-        required.append(input_dir / HOLDOUT_FILE)
-    for path in required:
-        if not path.exists():
-            raise FileNotFoundError(f"Required saved-trace artifact missing: {path}")
+    for filename in source_files.values():
+        if not (input_dir / filename).exists():
+            available = ", ".join(_available_stems(input_dir)) or "none"
+            raise FileNotFoundError(
+                f"Required saved-trace artifact missing: {input_dir / filename}. "
+                f"Sources available here: {available}"
+            )
+    if need_holdout and not (input_dir / HOLDOUT_FILE).exists():
+        raise FileNotFoundError(f"Required saved-trace artifact missing: {input_dir / HOLDOUT_FILE}")
 
     holdout = _load_trace_list(input_dir / HOLDOUT_FILE) if need_holdout else []
     train_sources = {
-        source_name: _load_trace_list(input_dir / SOURCE_FILES[source_name])
-        for source_name in selected
+        source_name: _load_trace_list(input_dir / filename)
+        for source_name, filename in source_files.items()
     }
     return holdout, train_sources
 
@@ -353,8 +371,11 @@ def main() -> None:
         "--sources",
         default=None,
         nargs="+",
-        choices=sorted(SOURCE_ALIASES),
-        help="Teacher sources to train on. Defaults to all of them.",
+        help=(
+            "Teacher sources to train on, given as trace stems such as "
+            f"poe_gamma_0.6, or as one of the aliases {sorted(SOURCE_ALIASES)}. "
+            "Defaults to every train_*.json in the input directory."
+        ),
     )
     parser.add_argument(
         "--modes",
@@ -399,14 +420,14 @@ def main() -> None:
         cfg.run.seed = args.seed
     if args.modes:
         cfg.distill.student_modes = args.modes
-    sources = [SOURCE_ALIASES[alias] for alias in args.sources] if args.sources else None
+    source_files = _resolve_sources(args.sources, input_dir)
 
     # The holdout only feeds the strategic-FD gradient.
     need_holdout = "strategic_fd" in cfg.distill.student_modes
 
     t = _stage_start("Loading saved teacher traces")
     holdout_full, teacher_train_sources = _load_saved_traces(
-        input_dir, sources, need_holdout
+        input_dir, source_files, need_holdout
     )
     _stage_end(
         "Loading saved teacher traces",

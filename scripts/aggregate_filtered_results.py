@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Aggregate the filtered-trace student array into one markdown table.
+"""Aggregate the filtered-trace student runs into one markdown table.
 
 Walks ``<root>/<level>/seed_<seed>/<source>/results.json`` as written by
-``slurm_scripts/run-student-filtered-traces.sbatch`` and reports test accuracy
-per seed plus the mean and standard error for every filter level.
+``slurm_scripts/run-student-filtered-traces-lowm.sbatch``. Matched and
+mismatched-proxy teachers land in the same table, one row each, with the
+number of traces the degeneracy filter dropped next to the accuracies.
 
 Usage:
     python scripts/aggregate_filtered_results.py
@@ -18,55 +19,107 @@ from typing import Any
 
 
 DEFAULT_ROOT = Path("outputs/filtered_traces")
-REPORT_NAME = "RESULTS_FILTERED.md"
+REPORT_NAME = "RESULTS.md"
+MISSING = "-"
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def _filter_manifest(input_dir: str, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Per-condition drop counts for the trace directory a run trained on.
+
+    The run manifest records which filtered directory was used, so the counts
+    come from that directory rather than from a mapping kept in step with it
+    here.
+    """
+    if input_dir not in cache:
+        cache[input_dir] = _read_json(Path(input_dir) / "filter_manifest.json")
+    return cache[input_dir]
 
 
 def load_runs(root: Path) -> list[dict[str, Any]]:
     """Collect one record per (level, seed, source, student mode)."""
     runs = []
+    manifest_cache: dict[str, dict[str, Any]] = {}
     for results_path in sorted(root.glob("*/seed_*/*/results.json")):
         source_dir = results_path.parent
         seed_dir = source_dir.parent
         level = seed_dir.parent.name
         seed = int(seed_dir.name.removeprefix("seed_"))
 
-        manifest_path = source_dir / "run_manifest.json"
-        manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        manifest = _read_json(source_dir / "run_manifest.json")
+        input_dir = str(manifest.get("input_dir", ""))
         train_sources = manifest.get("train_sources", {})
+        conditions = _filter_manifest(input_dir, manifest_cache).get("conditions", {})
+        # The mismatched teachers used a proxy that is not the student model.
+        proxy = "mismatched" if "mismatch" in f"{input_dir} {level}" else "matched"
 
         for row in json.loads(results_path.read_text()):
             eval_model = str(row.get("eval_model", ""))
             if not eval_model.startswith("student_"):
                 continue
+            source = str(row["train_source"])
+            counts = conditions.get(source.removeprefix("teacher_"), {})
             runs.append({
                 "level": level,
+                "proxy": proxy,
                 "seed": seed,
-                "source": str(row["train_source"]),
+                "source": source,
                 "mode": eval_model.removeprefix("student_"),
                 "accuracy": float(row["accuracy"]),
-                "n_traces": train_sources.get(str(row["train_source"])),
+                "kept": train_sources.get(source, counts.get("n_after")),
+                "dropped": counts.get("n_dropped"),
+                "n_before": counts.get("n_before"),
                 "student": manifest.get("student", ""),
             })
     return runs
 
 
-def level_order(level: str) -> tuple[int, str]:
-    return (level != "unfiltered", level)
+def row_order(key: tuple[str, str, str]) -> tuple[int, int, str, str]:
+    """Matched teachers first, each group led by the standard baseline."""
+    proxy, source, level = key
+    stem = source.removeprefix("teacher_")
+    return (proxy == "mismatched", stem != "standard", stem, level)
+
+
+def dropped_cell(run: dict[str, Any]) -> str:
+    dropped, before = run.get("dropped"), run.get("n_before")
+    if dropped is None:
+        return MISSING
+    if not before:
+        return str(dropped)
+    return f"{dropped} ({dropped / before:.1%})"
 
 
 def format_table(runs: list[dict[str, Any]], seeds: list[int]) -> list[str]:
-    levels = sorted({run["level"] for run in runs}, key=level_order)
-    headers = ["level", "traces"] + [f"seed {seed}" for seed in seeds] + ["mean", "std err"]
+    headers = (
+        ["teacher", "proxy", "filter", "traces", "dropped"]
+        + [f"seed {seed}" for seed in seeds]
+        + ["mean", "std err"]
+    )
     lines = [
         "| " + " | ".join(headers) + " |",
         "|" + "|".join(["---"] * len(headers)) + "|",
     ]
-    for level in levels:
-        by_seed = {run["seed"]: run for run in runs if run["level"] == level}
-        counts = {run["n_traces"] for run in by_seed.values() if run["n_traces"]}
-        cells = [level, str(counts.pop()) if len(counts) == 1 else "-"]
+    keys = sorted({(r["proxy"], r["source"], r["level"]) for r in runs}, key=row_order)
+    for proxy, source, level in keys:
+        by_seed = {
+            run["seed"]: run for run in runs
+            if (run["proxy"], run["source"], run["level"]) == (proxy, source, level)
+        }
+        sample = next(iter(by_seed.values()))
+        kept = sample.get("kept")
+        cells = [
+            source.removeprefix("teacher_"),
+            proxy,
+            level,
+            str(kept) if kept else MISSING,
+            dropped_cell(sample),
+        ]
         cells += [
-            f"{by_seed[seed]['accuracy']:.4f}" if seed in by_seed else "-"
+            f"{by_seed[seed]['accuracy']:.4f}" if seed in by_seed else MISSING
             for seed in seeds
         ]
         accuracies = [by_seed[seed]["accuracy"] for seed in seeds if seed in by_seed]
@@ -75,12 +128,32 @@ def format_table(runs: list[dict[str, Any]], seeds: list[int]) -> list[str]:
             cells.append(
                 f"{stdev(accuracies) / len(accuracies) ** 0.5:.4f}"
                 if len(accuracies) > 1
-                else "-"
+                else MISSING
             )
         else:
-            cells += ["-", "-"]
+            cells += [MISSING, MISSING]
         lines.append("| " + " | ".join(cells) + " |")
     return lines
+
+
+def missing_runs(runs: list[dict[str, Any]], seeds: list[int]) -> list[str]:
+    """Cells with no result, so a failed array task is not read as a gap."""
+    gaps = []
+    for mode in sorted({run["mode"] for run in runs}):
+        in_mode = [run for run in runs if run["mode"] == mode]
+        keys = sorted({(r["proxy"], r["source"], r["level"]) for r in in_mode}, key=row_order)
+        for proxy, source, level in keys:
+            done = {
+                run["seed"] for run in in_mode
+                if (run["proxy"], run["source"], run["level"]) == (proxy, source, level)
+            }
+            for seed in seeds:
+                if seed not in done:
+                    gaps.append(
+                        f"- `{source.removeprefix('teacher_')}` ({proxy}, {level}), "
+                        f"seed {seed}, mode {mode}"
+                    )
+    return gaps
 
 
 def build_report(runs: list[dict[str, Any]], root: Path) -> str:
@@ -90,28 +163,37 @@ def build_report(runs: list[dict[str, Any]], root: Path) -> str:
         "# Filtered-trace student results",
         "",
         f"- Runs: `{root}`",
-        f"- Student: " + ", ".join(f"`{s}`" for s in students),
-        f"- Seeds: " + ", ".join(str(seed) for seed in seeds),
+        "- Student: " + ", ".join(f"`{s}`" for s in students),
+        "- Seeds: " + ", ".join(str(seed) for seed in seeds),
         f"- Completed runs: {len(runs)}",
         "",
         "Test accuracy on the GSM8K-platinum test split, which is identical "
-        "across seeds. `traces` is the number of teacher traces the student "
-        "was trained on, so unequal counts across levels are visible next to "
-        "the accuracies. Standard error is the sample standard deviation over "
-        "seeds divided by the square root of the seed count.",
+        "across seeds. `proxy` says whether the teacher shaped its traces "
+        "against the student model (matched) or against a different model "
+        "(mismatched), the latter coming from `gsm8k_output_small_mismatch`. "
+        "`traces` is how many traces survived the degeneracy filter and were "
+        "trained on, and `dropped` is how many the filter removed. Standard "
+        "error is the sample standard deviation over seeds divided by the "
+        "square root of the seed count.",
         "",
     ]
     for mode in sorted({run["mode"] for run in runs}):
-        for source in sorted({run["source"] for run in runs}):
-            selected = [
-                run for run in runs
-                if run["mode"] == mode and run["source"] == source
-            ]
-            if not selected:
-                continue
-            lines += [f"## {source} (student mode: {mode})", ""]
-            lines += format_table(selected, seeds)
-            lines.append("")
+        selected = [run for run in runs if run["mode"] == mode]
+        lines += [f"## Student mode: {mode}", ""]
+        lines += format_table(selected, seeds)
+        lines.append("")
+
+    gaps = missing_runs(runs, seeds)
+    if gaps:
+        lines += [
+            "## Missing runs",
+            "",
+            "These cells are blank in the tables above because no "
+            "`results.json` was found for them.",
+            "",
+            *gaps,
+            "",
+        ]
     return "\n".join(lines)
 
 

@@ -38,8 +38,9 @@ STANDARD_FILE = "train_standard.json"
 # The repetition bar is the only knob with a debatable value, so the report
 # shows what the drop counts would have been at these alternatives.
 DEFAULT_REPEAT_POINTS = [4, 6, 8, 12, 16, 32]
-# `run_student_from_saved_traces.py` refuses to load a trace directory unless
-# both of these sit next to the train files.
+# Copied next to the train files when the source directory has them. A naive
+# run given an explicit --config needs neither, which is what makes a folder
+# holding only train files, like gsm8k_output_small_mismatch, usable.
 PASSTHROUGH_FILES = ["config_snapshot.yaml", "holdout_standard_internal.json"]
 FILTERED_DIR_NAME = "simple"
 
@@ -318,8 +319,8 @@ def write_filtered_dataset(
         if source.exists():
             shutil.copy2(source, folder / filename)
         else:
-            print(f"  warning: {source} missing, {folder.name} will not "
-                  "load in run_student_from_saved_traces.py")
+            print(f"  note: {source} missing, so {final_folder.name} only "
+                  "supports naive runs given an explicit --config")
 
     (folder / "filter_manifest.json").write_text(json.dumps(manifest, indent=2))
     publish(folder, final_folder)
