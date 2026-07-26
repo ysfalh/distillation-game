@@ -149,6 +149,9 @@ def summarize(runs: list[dict[str, Any]], baseline: float | None) -> dict[str, A
             "n_points": len(bins),
             "equalize": any_meta.get("equalize"),
             "token_budget": any_meta.get("token_budget"),
+            "aggregation": any_meta.get("metric", metric),
+            "stratify": any_meta.get("stratify", "none"),
+            "accuracy_ratio": _spread([b["trace_accuracy"] for b in bins]),
             "traces_equal": len(set(counts)) == 1 if counts else None,
             "token_ratio": max(tokens) / max(min(tokens), 1) if tokens else None,
         }
@@ -167,6 +170,13 @@ def missing_runs(runs: list[dict[str, Any]], expected_seeds: list[int]) -> list[
     return gaps
 
 
+def _spread(values: list[Any]) -> float | None:
+    numeric = [v for v in values if isinstance(v, (int, float)) and v == v]
+    if not numeric or min(numeric) <= 0:
+        return None
+    return max(numeric) / min(numeric)
+
+
 def _fmt(value: Any, spec: str = ".4f") -> str:
     if value is None:
         return "-"
@@ -182,9 +192,18 @@ def _fairness_notes(metrics: dict[str, Any]) -> list[str]:
         equalize = data.get("equalize")
         ratio = data.get("token_ratio")
         equal = data.get("traces_equal")
+        matched = data.get("stratify", "none") != "none"
         if equalize is None or ratio is None:
             continue
-        if equalize == "tokens":
+        held = "length and teacher correctness" if data.get("stratify") == "length_correct" else "length"
+        if matched and equal and ratio <= TOKEN_RATIO_WARN:
+            lines.append(
+                f"- `{metric}`: bins were matched on {held}, so they hold the same number of "
+                f"traces, agree on tokens within {ratio:.2f}x, and carry the same share of "
+                "correct traces. What differs between them is v_gap, which makes this arm the "
+                "one to read causally."
+            )
+        elif equalize == "tokens":
             budget = data.get("token_budget")
             budget_note = f" at a common budget of {budget / 1000:.0f}k tokens" if budget else ""
             lines.append(
@@ -197,13 +216,23 @@ def _fairness_notes(metrics: dict[str, Any]) -> list[str]:
                 f"agree within {ratio:.2f}x, so the training budget is not a confound."
             )
         elif equal:
-            lines.append(
+            note = (
                 f"- `{metric}`: bins hold the same number of traces, but the fattest carries "
-                f"**{ratio:.2f}x the tokens** of the leanest. Part of any trend here could be a "
-                "training-budget effect. The length-normalized `mean` binning is the built-in "
-                "control; `EQUALIZE=tokens sbatch slurm_scripts/vgap-score-prep.sbatch` tests it "
-                "directly."
+                f"**{ratio:.2f}x the tokens** of the leanest, because the summed gap grows with "
+                "trace length. A trend across these bins mixes v_gap with training budget"
             )
+            acc_ratio = data.get("accuracy_ratio")
+            if acc_ratio and acc_ratio > 1.05:
+                note += (
+                    f", and their teacher accuracy also spans {acc_ratio:.2f}x, so supervision "
+                    "quality differs too"
+                )
+            matched_arms = [m for m, d in metrics.items() if d.get("stratify", "none") != "none"]
+            if matched_arms:
+                note += f". Read it against {', '.join(f'`{m}`' for m in matched_arms)}, where both are held fixed."
+            else:
+                note += ". Treat the comparison as uncontrolled."
+            lines.append(note)
         else:
             lines.append(
                 f"- `{metric}`: trace counts differ across bins and token totals span "
@@ -239,6 +268,14 @@ def format_report(
         "on rank, so the tail of v_gap decides only which bin an extreme trace lands "
         "in, never where the splits fall.",
         "",
+        "The summed gap grows with trace length, so splitting on it also splits on "
+        "how many training tokens each student gets. Arms whose name ends in "
+        "`matched` rank each trace only against others of its response-length decile "
+        "and teacher correctness, which holds both fixed across bins and leaves v_gap "
+        "as the only thing that varies. An unmatched arm answers the question as the "
+        "defense poses it; a matched arm answers whether the gap itself is what "
+        "matters. Where the two disagree, the difference is the length effect.",
+        "",
     ]
     if baseline is not None:
         seed_note = ", ".join(str(s) for s in baseline_seeds)
@@ -263,8 +300,8 @@ def format_report(
         "GSM8K test accuracy of the attacker trained on each bin, averaged over "
         "seeds. This is the headline result; the per-seed breakdown is further down.",
         "",
-        "| binning | bin | v_gap median | traces | tokens | test accuracy | s.e. | gain |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| arm | bin | v_gap median | traces | tokens | resp. tokens | test accuracy | s.e. | gain |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for metric, data in metrics.items():
         for b in data["bins"]:
@@ -275,6 +312,7 @@ def format_report(
                     _fmt(b["vgap_median"], ".2f"),
                     str(b["n_traces"]) if isinstance(b["n_traces"], int) else "-",
                     f"{b['total_tokens'] / 1000:.0f}k" if isinstance(b["total_tokens"], int) else "-",
+                    _fmt(b["response_tokens_median"], ".0f"),
                     _fmt(b["accuracy_mean"]),
                     _fmt(b["accuracy_stderr"]),
                     _fmt(b["gain"], "+.4f"),
@@ -284,9 +322,8 @@ def format_report(
     lines += _fairness_notes(metrics)
 
     for metric, data in metrics.items():
-        label = "total log-prob ratio (the paper's V_gap)" if metric == "sum" else "log-prob ratio per response token"
         lines += [
-            f"## Binning by v_gap {metric}: {label}",
+            f"## Arm `{metric}`: {_arm_label(data, metric)}",
             "",
         ]
         seeds_seen = sorted({seed for b in data["bins"] for seed in b["seeds"]}) or expected_seeds
@@ -375,11 +412,32 @@ def format_report(
     return "\n".join(lines)
 
 
-METRIC_TITLES = {
-    "sum": "v_gap summed over the response\n(the paper's V_gap)",
-    "mean": "v_gap per response token\n(length-normalized)",
+ARM_ORDER = ["sum", "mean", "sum_lenmatched", "mean_lenmatched", "sum_matched", "mean_matched"]
+AGGREGATION_LABEL = {
+    "sum": "v_gap summed over the response (the paper's V_gap)",
+    "mean": "v_gap per response token (length-normalized)",
+}
+STRATIFY_LABEL = {
+    "none": "ranked against all traces",
+    "length": "ranked within a response-length decile",
+    "length_correct": "ranked within a response-length decile and teacher correctness",
 }
 SEED_COLORS = ["#4c72b0", "#dd8452", "#55a868", "#c44e52", "#8172b3"]
+
+
+def _arm_label(data: dict[str, Any], fallback: str) -> str:
+    aggregation = AGGREGATION_LABEL.get(data.get("aggregation", ""), fallback)
+    stratify = STRATIFY_LABEL.get(data.get("stratify", "none"), "")
+    return f"{aggregation}, {stratify}" if stratify else aggregation
+
+
+def _plot_title(data: dict[str, Any], arm: str) -> str:
+    aggregation = AGGREGATION_LABEL.get(data.get("aggregation", ""), arm).replace(" (", "\n(")
+    stratify = data.get("stratify", "none")
+    if stratify == "none":
+        return f"{aggregation}\nlength not controlled"
+    held = "length + correctness matched" if stratify == "length_correct" else "length matched"
+    return f"{aggregation}\n{held}"
 
 
 def _finite(value: Any) -> bool:
@@ -401,9 +459,7 @@ def write_plot(metrics: dict[str, Any], path: Path, baseline: float | None) -> b
     except ImportError:
         return False
 
-    order = [m for m in ("sum", "mean") if m in metrics] + [
-        m for m in metrics if m not in ("sum", "mean")
-    ]
+    order = [m for m in ARM_ORDER if m in metrics] + [m for m in metrics if m not in ARM_ORDER]
     fig, axes = plt.subplots(
         1,
         len(order),
@@ -504,7 +560,7 @@ def write_plot(metrics: dict[str, Any], path: Path, baseline: float | None) -> b
         subtitle = f"Spearman ρ = {rho:+.2f}"
         if _finite(data["spearman_p"]):
             subtitle += f"  (p = {data['spearman_p']:.3f})"
-        ax.set_title(f"{METRIC_TITLES.get(metric, metric)}\n{subtitle}", fontsize=11)
+        ax.set_title(f"{_plot_title(data, metric)}\n{subtitle}", fontsize=11)
         ax.set_xlabel(xlabel)
         ax.grid(True, axis="both", alpha=0.22)
         ax.spines["top"].set_visible(False)

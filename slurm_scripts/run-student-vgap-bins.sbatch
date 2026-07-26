@@ -8,8 +8,8 @@
 #SBATCH --time=8:00:00
 #SBATCH --array=0-29
 
-# One fresh Llama attacker per v_gap bin. An array task is one
-# (binning metric, bin, seed); each trains on that bin's traces only.
+# One fresh Llama attacker per v_gap bin. An array task is one (arm, bin, seed);
+# each trains on that bin's traces only.
 #
 # Do not submit this directly. Submit the prep job, which scores the traces,
 # writes the bins, releases this array, and queues the report:
@@ -35,12 +35,14 @@ SOURCE="${SOURCE:-standard}"
 STUDENT="meta-llama/Llama-3.2-3B"
 STUDENT_TOKENIZER="meta-llama/Llama-3.2-3B-Instruct"
 
-# `metric|bin`. Both binnings of the same traces are trained: `sum` is the
-# paper's V_gap and `mean` divides it by response length, which separates v_gap
-# from trace length.
+# `arm|bin`, and must match ARMS in vgap-score-prep.sbatch. `sum` is V_gap as
+# the defense computes it, with nothing held fixed, so its bins also differ in
+# trace length and token count. `mean_matched` holds length and teacher
+# correctness fixed, so only v_gap varies. Comparing the two is what tells a
+# v_gap effect apart from a length effect.
 COMBOS=(
     "sum|0" "sum|1" "sum|2" "sum|3" "sum|4"
-    "mean|0" "mean|1" "mean|2" "mean|3" "mean|4"
+    "mean_matched|0" "mean_matched|1" "mean_matched|2" "mean_matched|3" "mean_matched|4"
 )
 SEEDS=($(python -c "import yaml; print(*yaml.safe_load(open('${CONFIG}'))['run']['seeds'])"))
 
@@ -67,14 +69,15 @@ fi
 
 COMBO=${COMBOS[$((SLURM_ARRAY_TASK_ID / ${#SEEDS[@]}))]}
 SEED=${SEEDS[$((SLURM_ARRAY_TASK_ID % ${#SEEDS[@]}))]}
-METRIC=${COMBO%%|*}
+ARM=${COMBO%%|*}
 BIN=${COMBO##*|}
 
-INPUT_DIR="vgap/${DATASET}/bins/${METRIC}/bin_${BIN}"
-OUTPUT_DIR="outputs/vgap_bins/${METRIC}/bin_${BIN}/seed_${SEED}"
+INPUT_DIR="vgap/${DATASET}/bins/${ARM}/bin_${BIN}"
+OUTPUT_DIR="outputs/vgap_bins/${ARM}/bin_${BIN}/seed_${SEED}"
 
 if [ ! -d "$INPUT_DIR" ]; then
-    echo "ERROR: ${INPUT_DIR} does not exist. Build the bins with:" >&2
+    echo "ERROR: ${INPUT_DIR} does not exist." >&2
+    echo "       Build the bins, with ARMS covering '${ARM}':" >&2
     echo "       sbatch slurm_scripts/vgap-score-prep.sbatch" >&2
     exit 1
 fi
@@ -94,7 +97,7 @@ else
     RUN_CONFIG="${CONFIG}"
 fi
 
-echo "=== Array task $SLURM_ARRAY_TASK_ID | Metric: $METRIC | Bin: $BIN | Seed: $SEED ==="
+echo "=== Array task $SLURM_ARRAY_TASK_ID | Arm: $ARM | Bin: $BIN | Seed: $SEED ==="
 python scripts/run_student_from_saved_traces.py \
     --input-dir "$INPUT_DIR" \
     --output-dir "$OUTPUT_DIR" \

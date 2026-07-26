@@ -23,7 +23,9 @@
 # `sbatch slurm_scripts/run-base-eval-gsm8k.sbatch`. Without it the table still
 # reports accuracies and rho, just no gains.
 #
-# Set SUBMIT_STUDENTS=0 to rebuild the bins without training anything.
+# Set SUBMIT_STUDENTS=0 to rebuild the bins without training anything, and
+# SKIP_SCORING=1 to reuse the scores already on disk and only redo the binning,
+# which takes seconds.
 
 # Sourced before `set -e` so a nonzero status inside the env script, which is
 # not ours, cannot kill the job.
@@ -42,10 +44,17 @@ CONFIG="${CONFIG:-configs/gsm8k.yaml}"
 DATASET="${DATASET:-gsm8k_output_small}"
 SOURCE="${SOURCE:-standard}"
 N_BINS="${N_BINS:-5}"
-# What is held fixed across bins so the students are comparable. `traces` gives
-# every bin the same number of demonstrations; `tokens` subsamples each bin to a
-# common response-token budget instead, which is the control to run if BINS.md
-# warns that one bin carries far more tokens than another.
+# Which binnings to build, one set of bin folders each. `sum` is V_gap as the
+# defense computes it, with nothing held fixed. `mean_matched` ranks each trace
+# only against others of its response-length decile and teacher correctness, so
+# its bins carry the same number of traces, near-identical token totals and the
+# same share of correct traces, leaving v_gap as the only difference. Running
+# both is what separates a v_gap effect from a trace-length effect.
+# Keep this in sync with COMBOS in run-student-vgap-bins.sbatch.
+ARMS="${ARMS:-sum mean_matched}"
+# Only meaningful for unmatched arms: `traces` gives every bin the same number of
+# demonstrations, `tokens` subsamples each to a common response-token budget.
+# Matched arms already equalize both, so leave this alone when using them.
 EQUALIZE="${EQUALIZE:-traces}"
 # Two forward passes per trace on a 96 GB card. Scoring holds one model at a
 # time, so the batch can be well above what the student array uses.
@@ -81,18 +90,27 @@ fi
 # A stale bin folder would silently train the array on the previous scoring run.
 rm -rf "vgap/${DATASET}/bins"
 
-echo "=== Scoring ${DATASET}/train_${SOURCE}.json with v_gap ==="
-python scripts/score_vgap.py \
-    --input-dir "${DATASET}" \
-    --source "${SOURCE}" \
-    --config "${CONFIG}" \
-    --batch-size "${SCORE_BATCH_SIZE}"
+SCORES="vgap/${DATASET}/scores_${SOURCE}.json"
+if [ "${SKIP_SCORING:-0}" = "1" ] && [ -f "${SCORES}" ]; then
+    echo "=== Reusing ${SCORES} ==="
+else
+    if [ "${SKIP_SCORING:-0}" = "1" ]; then
+        echo "SKIP_SCORING was set but ${SCORES} does not exist; scoring anyway." >&2
+    fi
+    echo "=== Scoring ${DATASET}/train_${SOURCE}.json with v_gap ==="
+    python scripts/score_vgap.py \
+        --input-dir "${DATASET}" \
+        --source "${SOURCE}" \
+        --config "${CONFIG}" \
+        --batch-size "${SCORE_BATCH_SIZE}"
+fi
 
-echo "=== Binning into ${N_BINS} equal bins (equalize=${EQUALIZE}) ==="
+echo "=== Binning into ${N_BINS} equal bins: arms ${ARMS} (equalize=${EQUALIZE}) ==="
 python scripts/make_vgap_bins.py \
     --input-dir "${DATASET}" \
     --source "${SOURCE}" \
     --n-bins "${N_BINS}" \
+    --arms ${ARMS} \
     --equalize "${EQUALIZE}"
 
 echo "=== Bin comparability (full report in vgap/${DATASET}/BINS.md) ==="
@@ -101,12 +119,17 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
+arms = manifest.get("arms", {})
 print(f"equalize={manifest['equalize']}  binned={manifest['n_binned']}  excluded={manifest['excluded']}")
-for metric, stats in manifest["fairness"].items():
+for arm, stats in manifest["fairness"].items():
     counts = stats["trace_counts"]
+    accs = [s["trace_accuracy"] for s in manifest["summaries"][arm]]
+    held = arms.get(arm, {}).get("stratify", "none")
     print(
-        f"  {metric}: traces/bin={'equal at ' + str(counts[0]) if stats['traces_equal'] else counts}, "
-        f"token ratio={stats['token_ratio']:.2f}x"
+        f"  {arm}: traces/bin={'equal at ' + str(counts[0]) if stats['traces_equal'] else counts}, "
+        f"token ratio={stats['token_ratio']:.2f}x, "
+        f"trace acc {min(accs):.3f}-{max(accs):.3f}, "
+        f"held fixed={held}"
     )
 PY
 

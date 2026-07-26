@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """Split scored traces into equal v_gap bins, one drop-in trace folder each.
 
-Reads the scores written by `score_vgap.py` and emits, for every binning metric,
-K folders that look exactly like `gsm8k_output_small`. Each holds only its bin's
-traces, so the existing student runner trains on a bin with no changes:
+Reads the scores written by `score_vgap.py` and emits, for every arm, K folders
+that look exactly like `gsm8k_output_small`. Each holds only its bin's traces, so
+the existing student runner trains on a bin with no changes:
 
-    vgap/<dataset>/bins/<metric>/bin_0/train_standard.json
-                                      /config_snapshot.yaml
-                                      /holdout_standard_internal.json
+    vgap/<dataset>/bins/<arm>/bin_0/train_standard.json
+                                   /config_snapshot.yaml
+                                   /holdout_standard_internal.json
 
-Two metrics are produced. `sum` is the paper's V_gap, the total log-prob ratio
-over the response, and `mean` divides it by the response length. They differ
-because the sum grows with trace length, and length is itself plausibly related
-to how much a student learns; comparing the two binnings separates the effect of
-v_gap from the effect of length.
+An arm is a v_gap aggregation plus a choice of what to hold fixed across bins.
+`sum` is the paper's V_gap, the total log-prob ratio over the response; `mean`
+divides it by the response length. The summed gap grows with trace length, so
+splitting on it also splits on length, and the top bin ends up with more training
+tokens than the bottom one. The `_matched` arms rank each trace only against
+others in its response-length decile (and, for `length_correct`, of the same
+teacher correctness) and then draw equally from every group, which leaves the
+bins with the same trace count, near-identical token totals, and the same share
+of correct traces, so what remains between them is v_gap. Running an unmatched
+arm alongside a matched one shows how much of any trend was length.
 
 Bin 0 is the lowest v_gap.
 
@@ -25,8 +30,9 @@ Robustness, in the order it is applied:
 2. Traces are assigned by *rank*, never by value, so however heavy the tail of
    v_gap is, an extreme trace takes one slot in the top bin and cannot move a
    boundary.
-3. Bins hold exactly the same number of traces. The few leftover traces are
-   dropped from the two extremes of the ranking.
+3. Bins hold exactly the same number of traces, in the stratified arms too,
+   since every stratum contributes the same count to each bin. The few leftover
+   traces are dropped from the extremes of the ranking.
 4. Bins are described by median and interquartile range, which one outlier
    cannot drag around, and the reported spread makes the tail visible.
 
@@ -57,6 +63,21 @@ from vgap_stats import spearman
 
 
 METRICS = {"sum": "vgap_sum", "mean": "vgap_mean"}
+# An arm is a (metric, stratification) pair, and each one gets its own set of bin
+# folders. Stratified arms rank traces only against others of similar length (and
+# correctness), then take the same share of every stratum into every bin, which
+# leaves the bins with matched length and correctness profiles while still
+# differing in v_gap. That is the only way to hold trace count and token count
+# fixed at the same time.
+ARMS: dict[str, tuple[str, str]] = {
+    "sum": ("sum", "none"),
+    "mean": ("mean", "none"),
+    "sum_lenmatched": ("sum", "length"),
+    "mean_lenmatched": ("mean", "length"),
+    "sum_matched": ("sum", "length_correct"),
+    "mean_matched": ("mean", "length_correct"),
+}
+DEFAULT_ARMS = ["sum", "mean_matched"]
 # Copied beside the train file so the student runner can read a bin folder the
 # same way it reads the original trace directory.
 PASSTHROUGH_FILES = ["config_snapshot.yaml", "holdout_standard_internal.json"]
@@ -98,26 +119,67 @@ def filter_scores(
     return kept, excluded
 
 
-def assign_bins(values: list[float], n_bins: int) -> tuple[list[int | None], int, int]:
+def stratum_keys(
+    scores: list[dict[str, Any]],
+    mode: str,
+    n_strata: int,
+) -> list[Any]:
+    """Group traces so that ranking happens only within comparable groups.
+
+    `length` puts each trace in a response-length decile; `length_correct` also
+    splits on whether the teacher got the answer right. Bins then draw equally
+    from every group, so they cannot differ in length or in supervision quality.
+    """
+    if mode == "none":
+        return [0] * len(scores)
+    tokens = [int(s["n_response_tokens"]) for s in scores]
+    order = sorted(range(len(scores)), key=lambda i: tokens[i])
+    decile = [0] * len(scores)
+    for rank, index in enumerate(order):
+        decile[index] = min(rank * n_strata // len(scores), n_strata - 1)
+    if mode == "length":
+        return decile
+    return [(d, bool(s["correct"])) for d, s in zip(decile, scores)]
+
+
+def assign_bins(
+    values: list[float],
+    n_bins: int,
+    strata: list[Any] | None = None,
+) -> tuple[list[int | None], int]:
     """Rank traces and cut them into bins of identical size.
 
-    Returns the per-trace bin index (None for the leftovers), the bin size, and
-    how many traces were left over. The leftovers are taken off the two ends of
-    the ranking rather than from one side, so neither the lowest nor the highest
-    bin is the one that absorbs an uneven split.
+    Returns the per-trace bin index, with None for traces left over by an uneven
+    split, and how many were left over. Leftovers come off the two ends of the
+    ranking rather than one side, so neither the lowest nor the highest bin is
+    the one that absorbs the imbalance.
+
+    With `strata`, the ranking and the cut happen inside each stratum and every
+    bin takes the same number of traces from each, so bin sizes stay identical
+    while the stratifying variable is held constant across bins.
     """
     n = len(values)
-    per_bin = n // n_bins
-    if per_bin == 0:
-        raise ValueError(f"{n} traces cannot fill {n_bins} bins")
-    remainder = n - per_bin * n_bins
-    low_drop = remainder // 2
+    keys = strata if strata is not None else [0] * n
+    groups: dict[Any, list[int]] = {}
+    for index, key in enumerate(keys):
+        groups.setdefault(key, []).append(index)
 
-    order = sorted(range(n), key=lambda i: values[i])
     assignment: list[int | None] = [None] * n
-    for slot, index in enumerate(order[low_drop : low_drop + per_bin * n_bins]):
-        assignment[index] = slot // per_bin
-    return assignment, per_bin, remainder
+    remainder = 0
+    for indices in groups.values():
+        indices.sort(key=lambda i: values[i])
+        per_bin = len(indices) // n_bins
+        leftover = len(indices) - per_bin * n_bins
+        remainder += leftover
+        if per_bin == 0:
+            continue
+        low_drop = leftover // 2
+        for slot, index in enumerate(indices[low_drop : low_drop + per_bin * n_bins]):
+            assignment[index] = slot // per_bin
+
+    if all(b is None for b in assignment):
+        raise ValueError(f"{n} traces cannot fill {n_bins} bins")
+    return assignment, remainder
 
 
 def equalize_by_tokens(
@@ -244,11 +306,11 @@ def format_report(
     n_scored: int,
     excluded: dict[str, int],
     n_binned: int,
-    remainder: int,
+    remainders: dict[str, int],
     equalize: str,
     token_budget: int | None,
     summaries: dict[str, list[dict[str, Any]]],
-    fairness_by_metric: dict[str, dict[str, Any]],
+    fairness_by_arm: dict[str, dict[str, Any]],
     agreement: dict[str, Any],
     spread: dict[str, list[float]],
 ) -> str:
@@ -268,9 +330,10 @@ def format_report(
         f"- Excluded, empty response: {excluded['empty_response']}",
         f"- Excluded, shorter than the minimum response length: {excluded['too_short']}",
         f"- Excluded, truncated at the scoring cap: {excluded['truncated']}",
-        f"- Left over after cutting {n_bins} equal bins: {remainder} "
-        "(dropped from the two ends of the ranking)",
-        f"- **Binned: {n_binned}**",
+        "- Left over after cutting into equal bins: "
+        + ", ".join(f"{arm} {count}" for arm, count in remainders.items())
+        + " (dropped from the ends of the ranking)",
+        f"- **Binned: {n_binned} per arm**",
         "",
         "A non-finite score would sort arbitrarily and quietly poison a bin, so "
         "those traces are removed before ranking rather than after.",
@@ -307,57 +370,68 @@ def format_report(
         f"- Spearman(v_gap sum, response tokens) = {agreement['rho_sum_length']:+.3f}",
         f"- Spearman(v_gap mean, response tokens) = {agreement['rho_mean_length']:+.3f}",
         f"- Spearman(v_gap sum, v_gap mean) = {agreement['rho_sum_mean']:+.3f}",
-        f"- Traces landing in the same bin under both metrics: "
-        f"{agreement['same_bin']}/{n_binned} ({agreement['same_bin'] / max(n_binned, 1):.1%})",
+        "- Traces landing in the same bin under "
+        + " and ".join(f"`{a}`" for a in agreement["compared_arms"])
+        + f": {agreement['same_bin']}/{agreement['same_bin_of']} "
+        f"({agreement['same_bin'] / max(agreement['same_bin_of'], 1):.1%})",
         "",
-        "The first line is the length confound: if it is strongly positive then "
-        "binning by the sum is partly binning by trace length, which is why the "
-        "length-normalized binning is run alongside it.",
+        "The first line is the length confound. When it is strongly positive, "
+        "ranking traces by the summed v_gap is close to ranking them by length, "
+        "and no reweighting of an unstratified split can separate the two. The "
+        "matched arms handle it by ranking traces only against others of the same "
+        "length.",
         "",
         "## Comparability of the bins",
         "",
         f"Equalization mode: **{equalize}**"
         + (f", common token budget {token_budget}" if token_budget else ""),
         "",
-        "| metric | traces per bin | total tokens per bin | fattest/leanest tokens |",
-        "| --- | --- | --- | ---: |",
+        "| arm | ranked within | traces per bin | total tokens per bin | fattest/leanest tokens |",
+        "| --- | --- | --- | --- | ---: |",
     ]
-    for metric, stats in fairness_by_metric.items():
+    stratify_label = {
+        "none": "all traces",
+        "length": "length decile",
+        "length_correct": "length decile x correctness",
+    }
+    for arm, stats in fairness_by_arm.items():
         counts = stats["trace_counts"]
         count_cell = str(counts[0]) if stats["traces_equal"] else " / ".join(str(c) for c in counts)
         token_cell = " / ".join(f"{t / 1000:.0f}k" for t in stats["total_tokens"])
-        lines.append(f"| {metric} | {count_cell} | {token_cell} | {stats['token_ratio']:.2f}x |")
-    lines.append("")
-    worst = max((s["token_ratio"] for s in fairness_by_metric.values()), default=1.0)
-    if equalize == "traces" and worst > TOKEN_RATIO_WARN:
+        lines.append(
+            f"| {arm} | {stratify_label[ARMS[arm][1]]} | {count_cell} | "
+            f"{token_cell} | {stats['token_ratio']:.2f}x |"
+        )
+    lines += [
+        "",
+        "An arm ranked within all traces answers the question as the defense poses "
+        "it, but its bins may differ in length and so in how much supervision each "
+        "student sees. A matched arm holds those fixed and isolates the gap itself. "
+        "Reading the two together is the point: a trend that survives matching is a "
+        "v_gap effect, a trend that disappears was a length effect.",
+        "",
+    ]
+    for arm, stats in fairness_by_arm.items():
+        if ARMS[arm][1] == "none" and stats["token_ratio"] > TOKEN_RATIO_WARN:
+            lines += [
+                f"> **`{arm}`: bins hold equal traces but the fattest carries "
+                f"{stats['token_ratio']:.2f}x the response tokens of the leanest.** Any "
+                "trend across these bins mixes v_gap with training budget. Compare it "
+                "against the matched arm before drawing a conclusion.",
+                "",
+            ]
+    if equalize == "tokens":
         lines += [
-            f"> **Every bin holds the same number of traces, but the fattest bin carries "
-            f"{worst:.2f}x the response tokens of the leanest one.** A student trained on "
-            "the fattest bin therefore sees more supervision, so part of any trend across "
-            "bins could be a training-budget effect rather than a v_gap effect. The "
-            "length-normalized `mean` binning is the built-in control; to test it directly, "
-            "rebuild with `EQUALIZE=tokens sbatch slurm_scripts/vgap-score-prep.sbatch`, "
-            "which holds the token budget fixed and lets the trace counts vary instead.",
-            "",
-        ]
-    elif equalize == "tokens":
-        lines += [
-            "> Every bin was subsampled to the same response-token budget, so the amount "
-            "of supervision is held fixed and the trace counts differ instead. Equal trace "
-            "counts and equal token counts cannot hold at once, since a bin's token total "
-            "is determined by its traces.",
-            "",
-        ]
-    else:
-        lines += [
-            "> The bins are comparable on both counts: identical trace counts and "
-            f"token totals within {worst:.2f}x of each other.",
+            "> Every bin was subsampled to a common response-token budget, so trace "
+            "counts differ instead. Within an unstratified arm, equal traces and equal "
+            "tokens cannot hold at once; only stratification gives both.",
             "",
         ]
 
-    for metric, rows in summaries.items():
+    for arm, rows in summaries.items():
+        metric, stratify = ARMS[arm]
         lines += [
-            f"## Binning by v_gap {metric}",
+            f"## Arm `{arm}`: v_gap {metric}, ranked within {stratify_label[stratify]}",
             "",
             "| bin | traces | tokens | v_gap median | v_gap IQR | v_gap range | v_gap mean | resp. tokens | trace acc |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -393,11 +467,24 @@ def main() -> None:
     parser.add_argument("--scores-dir", default=None, help="Defaults to vgap/<input dir name>.")
     parser.add_argument("--n-bins", default=5, type=int, help="Number of equal bins.")
     parser.add_argument(
-        "--metrics",
-        default=list(METRICS),
+        "--arms",
+        default=DEFAULT_ARMS,
         nargs="+",
-        choices=sorted(METRICS),
-        help="Which v_gap aggregations to bin by.",
+        choices=sorted(ARMS),
+        help=(
+            "Which binnings to build. `sum` and `mean` rank every trace against "
+            "every other; the `_lenmatched` and `_matched` variants rank only "
+            "within a response-length decile, and `_matched` also within teacher "
+            "correctness, so the bins cannot differ in length or supervision "
+            "quality. Default: sum (V_gap as the defense computes it) plus "
+            "mean_matched (the controlled comparison)."
+        ),
+    )
+    parser.add_argument(
+        "--length-strata",
+        default=10,
+        type=int,
+        help="Number of response-length groups used by the matched arms.",
     )
     parser.add_argument(
         "--equalize",
@@ -467,29 +554,35 @@ def main() -> None:
     means = [s["vgap_mean"] for s in scores]
 
     assignments: dict[str, list[int | None]] = {}
-    members_by_metric: dict[str, list[list[dict[str, Any]]]] = {}
-    remainder = 0
+    members_by_arm: dict[str, list[list[dict[str, Any]]]] = {}
+    remainders: dict[str, int] = {}
     token_budget: int | None = None
-    for metric in args.metrics:
-        assignment, per_bin, remainder = assign_bins([s[METRICS[metric]] for s in scores], args.n_bins)
-        assignments[metric] = assignment
+    for arm in args.arms:
+        metric, stratify = ARMS[arm]
+        strata = stratum_keys(scores, stratify, args.length_strata) if stratify != "none" else None
+        assignment, remainder = assign_bins(
+            [s[METRICS[metric]] for s in scores], args.n_bins, strata
+        )
+        assignments[arm] = assignment
+        remainders[arm] = remainder
         members = [
             [s for s, b in zip(scores, assignment) if b == bin_index]
             for bin_index in range(args.n_bins)
         ]
         if args.equalize == "tokens":
             members, token_budget = equalize_by_tokens(members, seed=args.seed)
-        members_by_metric[metric] = members
+        members_by_arm[arm] = members
 
     summaries: dict[str, list[dict[str, Any]]] = {}
-    fairness_by_metric: dict[str, dict[str, Any]] = {}
-    for metric in args.metrics:
+    fairness_by_arm: dict[str, dict[str, Any]] = {}
+    for arm in args.arms:
+        metric, stratify = ARMS[arm]
         metric_key = METRICS[metric]
         rows: list[dict[str, Any]] = []
-        for bin_index, members in enumerate(members_by_metric[metric]):
+        for bin_index, members in enumerate(members_by_arm[arm]):
             summary = bin_summary(members, metric_key, bin_index)
             rows.append(summary)
-            folder = scores_dir / "bins" / metric / f"bin_{bin_index}"
+            folder = scores_dir / "bins" / arm / f"bin_{bin_index}"
             write_bin(
                 folder=folder,
                 input_dir=input_dir,
@@ -498,8 +591,11 @@ def main() -> None:
                 manifest={
                     "source": args.source,
                     "input_dir": str(input_dir),
+                    "arm": arm,
                     "metric": metric,
                     "metric_key": metric_key,
+                    "stratify": stratify,
+                    "length_strata": args.length_strata if stratify != "none" else 0,
                     "n_bins": args.n_bins,
                     "equalize": args.equalize,
                     "token_budget": token_budget,
@@ -509,31 +605,32 @@ def main() -> None:
                 },
             )
             print(
-                f"  {metric} bin {bin_index}: n={summary['n']}, "
+                f"  {arm} bin {bin_index}: n={summary['n']}, "
                 f"tokens={summary['total_response_tokens'] / 1000:.0f}k, "
                 f"v_gap median={summary['vgap_median']:.2f} "
                 f"[{summary['vgap_min']:.2f}, {summary['vgap_max']:.2f}], "
-                f"acc={summary['trace_accuracy']:.3f}"
+                f"acc={summary['trace_accuracy']:.3f}, "
+                f"resp tokens median={summary['response_tokens_median']:.0f}"
             )
-        summaries[metric] = rows
-        fairness_by_metric[metric] = fairness(rows)
+        summaries[arm] = rows
+        fairness_by_arm[arm] = fairness(rows)
 
-    if "sum" in assignments and "mean" in assignments:
-        same_bin = sum(
-            1
-            for a, b in zip(assignments["sum"], assignments["mean"])
-            if a is not None and a == b
-        )
-    else:
-        same_bin = 0
+    same_bin = shared = 0
+    if len(args.arms) >= 2:
+        first, second = assignments[args.arms[0]], assignments[args.arms[1]]
+        pairs = [(a, b) for a, b in zip(first, second) if a is not None and b is not None]
+        shared = len(pairs)
+        same_bin = sum(1 for a, b in pairs if a == b)
     agreement = {
         "rho_sum_length": spearman(sums, lengths),
         "rho_mean_length": spearman(means, lengths),
         "rho_sum_mean": spearman(sums, means),
         "same_bin": same_bin,
+        "same_bin_of": shared,
+        "compared_arms": args.arms[:2],
     }
 
-    n_binned = args.n_bins * (len(scores) // args.n_bins)
+    n_binned = min(sum(row["n"] for row in rows) for rows in summaries.values())
     report = format_report(
         source=args.source,
         input_dir=input_dir,
@@ -541,11 +638,11 @@ def main() -> None:
         n_scored=len(all_scores),
         excluded=excluded,
         n_binned=n_binned,
-        remainder=remainder,
+        remainders=remainders,
         equalize=args.equalize,
         token_budget=token_budget,
         summaries=summaries,
-        fairness_by_metric=fairness_by_metric,
+        fairness_by_arm=fairness_by_arm,
         agreement=agreement,
         spread={"sum": sums, "mean": means},
     )
@@ -556,31 +653,32 @@ def main() -> None:
                 "input_dir": str(input_dir),
                 "source": args.source,
                 "n_bins": args.n_bins,
-                "metrics": list(args.metrics),
+                "arms": {arm: {"metric": ARMS[arm][0], "stratify": ARMS[arm][1]} for arm in args.arms},
+                "length_strata": args.length_strata,
                 "equalize": args.equalize,
                 "token_budget": token_budget,
                 "n_scored": len(all_scores),
                 "excluded": excluded,
                 "n_binned": n_binned,
                 "agreement": agreement,
-                "fairness": fairness_by_metric,
+                "fairness": fairness_by_arm,
                 "summaries": summaries,
                 "created_at": datetime.now().isoformat(),
             },
             indent=2,
         )
     )
-    print(f"\nWrote {scores_dir / 'BINS.md'} and {len(args.metrics) * args.n_bins} bin folders")
+    print(f"\nWrote {scores_dir / 'BINS.md'} and {len(args.arms) * args.n_bins} bin folders")
     print(
         f"  Spearman(v_gap sum, length)={agreement['rho_sum_length']:+.3f}, "
         f"Spearman(v_gap mean, length)={agreement['rho_mean_length']:+.3f}"
     )
-    for metric, stats in fairness_by_metric.items():
+    for arm, stats in fairness_by_arm.items():
         flag = ""
-        if args.equalize == "traces" and stats["token_ratio"] > TOKEN_RATIO_WARN:
-            flag = "  <-- rerun with --equalize tokens to control for this"
+        if ARMS[arm][1] == "none" and stats["token_ratio"] > TOKEN_RATIO_WARN:
+            flag = f"  <-- length is not held fixed here; compare against a matched arm"
         print(
-            f"  {metric}: traces per bin {'equal' if stats['traces_equal'] else stats['trace_counts']}, "
+            f"  {arm}: traces per bin {'equal' if stats['traces_equal'] else stats['trace_counts']}, "
             f"token ratio {stats['token_ratio']:.2f}x{flag}"
         )
 
