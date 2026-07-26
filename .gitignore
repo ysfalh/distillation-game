@@ -15,6 +15,7 @@ plot-quality-seed42/
 plot-quality-seed43/
 plot-quality-seed44/
 filtering_traces/filtered/
+vgap/
 
 *.pyc
 *.pyo
