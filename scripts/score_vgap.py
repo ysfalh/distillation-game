@@ -152,6 +152,7 @@ def score_with_model(
     batch_size: int,
     row_chunk: int,
     label: str,
+    shuffle_seed: int | None = None,
 ) -> tuple[list[float], int]:
     """Teacher-forced summed response log-prob for every example.
 
@@ -159,7 +160,14 @@ def score_with_model(
     are returned in the caller's order. Ids past the model's vocabulary are
     clamped and counted, which matters only if the two tokenizers disagree on
     more than the padding of the embedding matrix.
+
+    Scoring is deterministic, so `shuffle_seed` cannot change the quantity being
+    measured. It reshuffles traces among batches of similar length, which changes
+    the padding and the order of the floating-point reductions, and so turns a
+    repeat run into a check on how stable the numbers are to those choices.
     """
+    import random
+
     import torch
 
     device = next(model.parameters()).device
@@ -167,6 +175,13 @@ def score_with_model(
     model.eval()
 
     order = sorted(range(len(examples)), key=lambda i: len(examples[i]["ids"]))
+    if shuffle_seed is not None:
+        rng = random.Random(shuffle_seed)
+        window = max(batch_size * 8, 2)
+        for start in range(0, len(order), window):
+            block = order[start : start + window]
+            rng.shuffle(block)
+            order[start : start + window] = block
     totals = [0.0] * len(examples)
     clamped = 0
     started = time.perf_counter()
