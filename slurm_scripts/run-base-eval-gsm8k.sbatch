@@ -3,10 +3,10 @@
 #SBATCH --output=/share/project/haghifam-projects/strategic-distillation/logs/base_eval_%A_%a.out
 #SBATCH --partition=gpu
 #SBATCH --gpus=1
-#SBATCH --constraint=48g
+#SBATCH --constraint=96g
 #SBATCH --mem=64gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-2
+#SBATCH --array=0-3
 
 # Untrained base models on the GSM8K test split, one model per GPU.
 # No training happens here, so this is the floor the distilled students are
@@ -15,22 +15,27 @@
 #   sbatch slurm_scripts/run-base-eval-gsm8k.sbatch
 #
 # Each task writes outputs/base_eval/seed_456/<model>/results.json. To see all
-# three at once afterwards:
+# of them at once afterwards:
 #
 #   grep -h '"accuracy"' outputs/base_eval/seed_456/*/results.json
 
-source /share/project/haghifam-projects/venv-low-memory/bin/activate
+# Sourced before `set -e` so a nonzero status inside the env script, which is
+# not ours, cannot kill the job.
+source $HOME/nlphw/my_project.env
 cd /share/project/haghifam-projects/strategic-distillation || exit 1
+
+set -eo pipefail
 mkdir -p logs
 
 export HF_HOME="/scratch/mhaghifam/hf_cache"
-export PYTHONPATH="$(pwd)/src:${PYTHONPATH}"
+export HF_TOKEN="${HF_TOKEN:-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}"
+export PYTHONPATH="$(pwd)/src:${PYTHONPATH:-}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 CONFIG="${CONFIG:-configs/gsm8k.yaml}"
 SEED="${SEED:-456}"
-# The 48 GB cards hold this; the config's 240 is sized for the 96 GB ones.
-EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-200}"
+# Matches distill.eval_batch_size / generation.batch_size on these 96 GB cards.
+EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-240}"
 
 # `base model|tokenizer with the chat template`. Base checkpoints have no
 # template of their own, so each one borrows its Instruct sibling's, exactly
@@ -39,6 +44,7 @@ MODELS=(
     "Qwen/Qwen2.5-3B|Qwen/Qwen2.5-3B-Instruct"
     "Qwen/Qwen2.5-1.5B|Qwen/Qwen2.5-1.5B-Instruct"
     "meta-llama/Llama-3.2-3B|meta-llama/Llama-3.2-3B-Instruct"
+    "meta-llama/Meta-Llama-3.1-8B|meta-llama/Meta-Llama-3.1-8B-Instruct"
 )
 
 if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
@@ -52,10 +58,9 @@ if [ "${SLURM_ARRAY_TASK_ID}" -ge "${#MODELS[@]}" ]; then
 fi
 
 ENTRY=${MODELS[${SLURM_ARRAY_TASK_ID}]}
-MODEL=${ENTRY%%|*}
-TOKENIZER=${ENTRY##*|}
+IFS='|' read -r MODEL TOKENIZER <<< "$ENTRY"
 
-echo "=== Array task ${SLURM_ARRAY_TASK_ID} | Model: ${MODEL} | Seed: ${SEED} ==="
+echo "=== Array task ${SLURM_ARRAY_TASK_ID} | Model: ${MODEL} | Seed: ${SEED} | Batch: ${EVAL_BATCH_SIZE} ==="
 python scripts/eval_base_model_gsm8k.py \
     --model "$MODEL" \
     --tokenizer "$TOKENIZER" \
