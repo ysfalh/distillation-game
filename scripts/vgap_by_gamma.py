@@ -199,6 +199,23 @@ def score_sources(
     return {"traces": per_source, "clamped": clamped}
 
 
+# The whole distribution of per-trace v_gap, stored as a quantile grid so the
+# report can draw a CDF and compare distributions without keeping every trace.
+# 201 points resolves the curve to half a percentile, well past what is visible.
+GRID = [i / 200 for i in range(201)]
+# Dominance is judged over the interior: at the very ends the quantile function
+# is one observation, and a lone outlier should not decide the verdict.
+DOMINANCE_RANGE = (0.01, 0.99)
+REPORT_QUANTILES = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
+
+
+def _quantile_grid(values: list[float]) -> list[float]:
+    ordered = sorted(values)
+    if not ordered:
+        return [float("nan")] * len(GRID)
+    return [_percentile(ordered, q) for q in GRID]
+
+
 def _usable(rows: list[dict[str, Any]], drop_truncated: bool) -> list[dict[str, Any]]:
     return [r for r in rows if r["finite"] and not (drop_truncated and r["truncated"])]
 
@@ -221,7 +238,51 @@ def summarize_source(rows: list[dict[str, Any]], drop_truncated: bool) -> dict[s
         "vgap_sum_median": _percentile(sums, 0.5),
         "response_tokens": _mean(lengths),
         "trace_accuracy": _mean([float(r["correct"]) for r in rows]),
+        "quantiles": _quantile_grid(means),
+        "report_quantiles": [_percentile(means, q) for q in REPORT_QUANTILES],
     }
+
+
+def _ks_statistic(a: list[float], b: list[float]) -> float:
+    """Largest vertical distance between two empirical CDFs.
+
+    Summarizes how far apart the distributions are as wholes, rather than how
+    far apart their centers are, so a shift that only moves part of the mass
+    still registers.
+    """
+    if not a or not b:
+        return float("nan")
+    sorted_a, sorted_b = sorted(a), sorted(b)
+    i = j = 0
+    worst = 0.0
+    while i < len(sorted_a) and j < len(sorted_b):
+        x = min(sorted_a[i], sorted_b[j])
+        while i < len(sorted_a) and sorted_a[i] <= x:
+            i += 1
+        while j < len(sorted_b) and sorted_b[j] <= x:
+            j += 1
+        worst = max(worst, abs(i / len(sorted_a) - j / len(sorted_b)))
+    return worst
+
+
+def _dominance(values: list[float], baseline: list[float]) -> str:
+    """Whether one distribution sits wholly below or above the other.
+
+    Comparing quantile functions pointwise is the same as comparing CDFs, so an
+    answer of `below` means every quantile of v_gap fell: the defense moved the
+    entire distribution, not just its average.
+    """
+    grid_a, grid_b = _quantile_grid(values), _quantile_grid(baseline)
+    low = int(DOMINANCE_RANGE[0] * (len(GRID) - 1))
+    high = int(DOMINANCE_RANGE[1] * (len(GRID) - 1))
+    window = list(zip(grid_a[low : high + 1], grid_b[low : high + 1]))
+    if not window:
+        return "unknown"
+    if all(a < b for a, b in window):
+        return "below"
+    if all(a > b for a, b in window):
+        return "above"
+    return "crosses"
 
 
 def compare_to_baseline(
@@ -237,6 +298,8 @@ def compare_to_baseline(
     baseline_by_id = {r["example_id"]: r for r in baseline_rows}
     deltas: list[float] = []
     delta_sums: list[float] = []
+    paired_values: list[float] = []
+    paired_baseline: list[float] = []
     for row in rows:
         base = baseline_by_id.get(row["example_id"])
         if base is None:
@@ -247,6 +310,8 @@ def compare_to_baseline(
             continue
         deltas.append(row["vgap_mean"] - base["vgap_mean"])
         delta_sums.append(row["vgap_sum"] - base["vgap_sum"])
+        paired_values.append(row["vgap_mean"])
+        paired_baseline.append(base["vgap_mean"])
     if not deltas:
         return None
 
@@ -260,6 +325,10 @@ def compare_to_baseline(
         "delta_median": _percentile(deltas, 0.5),
         "delta_sum_mean": _mean(delta_sums),
         "frac_suppressed": n_down / len(deltas),
+        "delta_quantiles": _quantile_grid(deltas),
+        "delta_report_quantiles": [_percentile(deltas, q) for q in REPORT_QUANTILES],
+        "ks_statistic": _ks_statistic(paired_values, paired_baseline),
+        "dominance": _dominance(paired_values, paired_baseline),
         # How many standard errors the paired change sits from zero. With
         # thousands of pairs this is effectively a z statistic.
         "t_stat": mean_delta / stderr if stderr and math.isfinite(stderr) and stderr > 0 else float("nan"),
@@ -304,13 +373,24 @@ def pool_across_seeds(by_seed: dict[int, dict[str, Any]]) -> dict[str, Any]:
             values = [e[key] for e in entries if isinstance(e.get(key), float)]
             base[key] = _mean(values)
             base[f"{key}_seed_spread"] = (max(values) - min(values)) if len(values) > 1 else 0.0
+        for key in ("quantiles", "report_quantiles"):
+            grids = [e[key] for e in entries if e.get(key)]
+            if grids:
+                base[key] = [_mean(list(point)) for point in zip(*grids)]
         comparisons = [e["vs_baseline"] for e in entries if e.get("vs_baseline")]
         if comparisons:
             merged = dict(comparisons[0])
-            for key in ("delta_mean", "delta_median", "frac_suppressed", "delta_sum_mean", "t_stat"):
+            for key in ("delta_mean", "delta_median", "frac_suppressed", "delta_sum_mean",
+                        "t_stat", "ks_statistic"):
                 values = [c[key] for c in comparisons if isinstance(c.get(key), float)]
                 merged[key] = _mean(values)
                 merged[f"{key}_seed_spread"] = (max(values) - min(values)) if len(values) > 1 else 0.0
+            for key in ("delta_quantiles", "delta_report_quantiles"):
+                grids = [c[key] for c in comparisons if c.get(key)]
+                if grids:
+                    merged[key] = [_mean(list(point)) for point in zip(*grids)]
+            verdicts = {c.get("dominance") for c in comparisons}
+            merged["dominance"] = verdicts.pop() if len(verdicts) == 1 else "crosses"
             base["vs_baseline"] = merged
         base["n_seeds"] = len(entries)
         pooled[source] = base
@@ -347,6 +427,136 @@ def _exclusion_warnings(
     return []
 
 
+def _distribution_notes(pooled: dict[str, Any], order: list[str]) -> list[str]:
+    """Turn the dominance and KS numbers into a sentence about each defense."""
+    lines: list[str] = []
+    for source in order:
+        comparison = pooled[source].get("vs_baseline")
+        if not comparison:
+            continue
+        ks = comparison.get("ks_statistic")
+        # A uniform shift can still be a negligible one, so the size of the
+        # separation is reported next to its direction, never on its own.
+        big = isinstance(ks, float) and math.isfinite(ks) and ks >= 0.10
+        if comparison["dominance"] == "below":
+            if big:
+                lines.append(
+                    f"- `{source}`: every quantile from p01 to p99 sits below the "
+                    "gamma = 0 teacher, so the defense moved the whole distribution "
+                    "rather than pulling down a tail, and the two distributions are "
+                    f"well separated (largest CDF gap {_fmt(ks, '.2f')})."
+                )
+            else:
+                lines.append(
+                    f"- `{source}`: every quantile sits below the gamma = 0 teacher, but "
+                    f"only barely; the largest CDF gap is {_fmt(ks, '.2f')}, so the two "
+                    "distributions almost entirely overlap. The direction is consistent, "
+                    "the size is small."
+                )
+        elif comparison["dominance"] == "above":
+            lines.append(
+                f"- `{source}`: every quantile sits *above* the gamma = 0 teacher, so the "
+                f"gap went up across the board (largest CDF gap {_fmt(ks, '.2f')})."
+            )
+        else:
+            lines.append(
+                f"- `{source}`: the two distributions cross, so the change is not uniform; "
+                "some traces moved one way and some the other. Read the median change "
+                f"rather than the mean (largest CDF gap {_fmt(ks, '.2f')})."
+            )
+    if lines:
+        lines.append("")
+    return lines
+
+
+def _plot_label(source: str, gamma: float | None) -> str:
+    if gamma is not None:
+        return f"PoE gamma = {gamma:.2f}" if gamma else "teacher (gamma = 0)"
+    if source.startswith("antidistillation_lam_"):
+        return f"ADS lam = {source.removeprefix('antidistillation_lam_')} (control)"
+    return f"{source} (control)"
+
+
+def write_plot(pooled: dict[str, Any], path: Path) -> bool:
+    """Two CDFs: the per-trace v_gap at each gamma, and the paired change.
+
+    The left panel answers whether the distributions separate at all; the right
+    answers how many problems moved and by how much, with everything left of
+    zero being a problem whose gap the defense suppressed.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return False
+
+    order = _order_sources(pooled)
+    colors = ["#222222", "#3b76af", "#8c4bbe", "#dd8452", "#c44e52", "#55a868", "#4f9d76"]
+    fig, axes = plt.subplots(1, 2, figsize=(13.0, 5.2))
+
+    for index, source in enumerate(order):
+        grid = pooled[source].get("quantiles")
+        if not grid:
+            continue
+        gamma = pooled[source].get("gamma")
+        label = _plot_label(source, gamma)
+        axes[0].plot(
+            grid,
+            GRID,
+            color=colors[index % len(colors)],
+            linewidth=2.0 if gamma is not None else 1.4,
+            linestyle="-" if gamma is not None else "--",
+            label=label,
+        )
+    axes[0].set_xlabel("per-trace v_gap per response token")
+    axes[0].set_ylabel("fraction of traces at or below")
+    axes[0].set_title(
+        "Distribution of v_gap by gamma\ncurves further left = gap more suppressed",
+        fontsize=11,
+    )
+
+    for index, source in enumerate(order):
+        comparison = pooled[source].get("vs_baseline")
+        if not comparison or not comparison.get("delta_quantiles"):
+            continue
+        gamma = pooled[source].get("gamma")
+        label = _plot_label(source, gamma)
+        axes[1].plot(
+            comparison["delta_quantiles"],
+            GRID,
+            color=colors[index % len(colors)],
+            linewidth=2.0 if gamma is not None else 1.4,
+            linestyle="-" if gamma is not None else "--",
+            label=label,
+        )
+    axes[1].axvline(0.0, color="#888888", linewidth=1.0, linestyle=":")
+    axes[1].set_xlabel("change in v_gap per token vs the same problem at gamma = 0")
+    axes[1].set_ylabel("fraction of problems at or below")
+    axes[1].set_title(
+        "Per-problem change\nmass left of the dotted line = suppressed",
+        fontsize=11,
+    )
+
+    for ax in axes:
+        ax.grid(True, alpha=0.22)
+        ax.set_ylim(0, 1)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.legend(frameon=False, fontsize=9, loc="best")
+
+    fig.suptitle(
+        "Does token-level PoE suppress the teacher-proxy likelihood gap?",
+        fontsize=13,
+        y=1.02,
+    )
+    fig.tight_layout()
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
 def _order_sources(pooled: dict[str, Any]) -> list[str]:
     known = [s for s in PREFERRED_ORDER if s in pooled]
     return known + [s for s in pooled if s not in known]
@@ -360,6 +570,7 @@ def format_report(
     input_dir: Path,
     max_length: int,
     drop_truncated: bool,
+    plot_name: str | None = None,
 ) -> str:
     order = _order_sources(pooled)
     baseline = pooled.get(BASELINE, {})
@@ -386,6 +597,11 @@ def format_report(
         "length as a side effect, so a bare sum would partly be reporting how "
         "long the traces are. The summed form is in the second table.",
         "",
+        *(
+            [f"![v_gap distributions]({plot_name})", ""]
+            if plot_name
+            else []
+        ),
         "## Per-token v_gap by gamma",
         "",
         "| source | gamma | traces | excluded | resp. tokens | mean v_gap/token | s.e. | median | IQR | trace acc |",
@@ -459,6 +675,37 @@ def format_report(
 
     lines += [
         "",
+        "## The whole distribution, not just its average",
+        "",
+        "An average can move because every trace moved a little or because a few "
+        "moved a lot, and those mean different things about the defense. These are "
+        "the quantiles of the per-trace v_gap per token, which is the CDF read "
+        "sideways: the p05 column is the value below which 5% of traces fall.",
+        "",
+        "| source | p05 | p10 | p25 | median | p75 | p90 | p95 | vs gamma = 0 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    dominance_note = {
+        "below": "every quantile lower",
+        "above": "every quantile higher",
+        "crosses": "curves cross",
+        "unknown": "-",
+    }
+    for source in order:
+        entry = pooled[source]
+        quantiles = entry.get("report_quantiles") or []
+        comparison = entry.get("vs_baseline")
+        verdict = dominance_note.get(comparison["dominance"], "-") if comparison else "baseline"
+        lines.append(
+            "| " + " | ".join(
+                [f"`{source}`"]
+                + [_fmt(q, ".3f") for q in quantiles]
+                + [verdict]
+            ) + " |"
+        )
+    lines += ["", *_distribution_notes(pooled, order)]
+
+    lines += [
         "## Summed v_gap, for reference",
         "",
         "This is the quantity as the sequence-level rule literally writes it, "
@@ -707,6 +954,11 @@ def main() -> None:
         return
 
     pooled = pool_across_seeds(by_seed)
+    ensure_dir(output_dir)
+    plot_path = output_dir / "vgap_cdf.png"
+    has_plot = write_plot(pooled, plot_path)
+    if not has_plot:
+        console.print("  [yellow]matplotlib is missing, so no CDF plot was drawn.[/yellow]")
     report = format_report(
         pooled,
         seeds=sorted(by_seed),
@@ -714,8 +966,8 @@ def main() -> None:
         input_dir=input_dir,
         max_length=max_length,
         drop_truncated=drop_truncated,
+        plot_name=plot_path.name if has_plot else None,
     )
-    ensure_dir(output_dir)
     # Written last and in one shot: several array tasks may reach this point at
     # once, and a partial file is worse than a stale one.
     tmp = output_dir / "RESULTS.md.partial"
@@ -736,13 +988,15 @@ def main() -> None:
         label = f"gamma={gamma:.2f}" if gamma is not None else "control"
         line = (
             f"  {source:30s} {label:>12s}  "
-            f"v_gap/token = {entry['vgap_mean']:+.4f} +/- {entry['vgap_mean_stderr']:.4f}"
+            f"mean {entry['vgap_mean']:+.4f} +/- {entry['vgap_mean_stderr']:.4f}  "
+            f"median {entry['vgap_mean_median']:+.4f}"
         )
         comparison = entry.get("vs_baseline")
         if comparison:
             line += (
                 f"   change {comparison['delta_mean']:+.4f} "
-                f"({comparison['frac_suppressed']:.0%} of problems down)"
+                f"({comparison['frac_suppressed']:.0%} of problems down, "
+                f"{comparison['dominance']})"
             )
         console.print(line)
     console.print(f"\n  Wrote {output_dir / 'RESULTS.md'} from seeds {sorted(by_seed)}")

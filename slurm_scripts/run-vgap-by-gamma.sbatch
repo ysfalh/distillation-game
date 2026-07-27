@@ -48,6 +48,17 @@ OUTPUT_DIR="${OUTPUT_DIR:-outputs/vgap_poe}"
 BATCH_SIZE="${BATCH_SIZE:-6}"
 ROW_CHUNK="${ROW_CHUNK:-1024}"
 
+# Only needed for the CDF plot; the report is written either way.
+python - <<'PY' || echo "WARNING: matplotlib unavailable, the report will have no plot." >&2
+import importlib.util
+import subprocess
+import sys
+
+if importlib.util.find_spec("matplotlib") is None:
+    print("Installing matplotlib for the CDF plot")
+    sys.exit(subprocess.call([sys.executable, "-m", "pip", "install", "--quiet", "matplotlib"]))
+PY
+
 SEEDS=($(python -c "import yaml; print(*yaml.safe_load(open('${CONFIG}'))['run']['seeds'])"))
 if [ ${#SEEDS[@]} -eq 0 ]; then
     echo "ERROR: could not read run.seeds from ${CONFIG}" >&2
