@@ -16,7 +16,7 @@ plot-quality-seed43/
 plot-quality-seed44/
 filtering_traces/filtered/
 vgap/
-
+paper.pdf
 *.pyc
 *.pyo
 *.DS_Store
