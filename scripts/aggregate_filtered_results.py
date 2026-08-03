@@ -2,9 +2,11 @@
 """Aggregate the filtered-trace student runs into one markdown table.
 
 Walks ``<root>/<level>/seed_<seed>/<source>/results.json`` as written by
-``slurm_scripts/run-student-filtered-traces-lowm.sbatch``. Matched and
-mismatched-proxy teachers land in the same table, one row each, with the
-number of traces the degeneracy filter dropped next to the accuracies.
+``slurm_scripts/run-student-filtered-traces.sbatch``. Each teacher gets one row
+carrying how many traces the degeneracy filter dropped, the accuracy of a
+student trained on the raw traces, and the accuracy of a student trained on the
+filtered ones, so the effect of filtering is a difference within a row rather
+than a comparison across tables.
 
 Usage:
     python scripts/aggregate_filtered_results.py
@@ -21,6 +23,13 @@ from typing import Any
 DEFAULT_ROOT = Path("outputs/filtered_traces")
 REPORT_NAME = "RESULTS.md"
 MISSING = "-"
+# The two arms of the comparison, in the order their columns appear.
+VARIANTS = ("unfiltered", "filtered")
+
+
+def variant_of(level: str) -> str:
+    """Which arm a run belongs to, read from the level directory it sits in."""
+    return "unfiltered" if level.startswith("unfiltered") else "filtered"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -64,6 +73,7 @@ def load_runs(root: Path) -> list[dict[str, Any]]:
             counts = conditions.get(source.removeprefix("teacher_"), {})
             runs.append({
                 "level": level,
+                "variant": variant_of(level),
                 "proxy": proxy,
                 "seed": seed,
                 "source": source,
@@ -77,11 +87,11 @@ def load_runs(root: Path) -> list[dict[str, Any]]:
     return runs
 
 
-def row_order(key: tuple[str, str, str]) -> tuple[int, int, str, str]:
+def row_order(key: tuple[str, str]) -> tuple[int, int, str]:
     """Matched teachers first, each group led by the standard baseline."""
-    proxy, source, level = key
+    proxy, source = key
     stem = source.removeprefix("teacher_")
-    return (proxy == "mismatched", stem != "standard", stem, level)
+    return (proxy == "mismatched", stem != "standard", stem)
 
 
 def dropped_cell(run: dict[str, Any]) -> str:
@@ -93,45 +103,54 @@ def dropped_cell(run: dict[str, Any]) -> str:
     return f"{dropped} ({dropped / before:.1%})"
 
 
+def mean_se_cell(accuracies: list[float]) -> str:
+    if not accuracies:
+        return MISSING
+    if len(accuracies) == 1:
+        return f"{mean(accuracies):.4f}"
+    return f"{mean(accuracies):.4f} ± {stdev(accuracies) / len(accuracies) ** 0.5:.4f}"
+
+
 def format_table(runs: list[dict[str, Any]], seeds: list[int]) -> list[str]:
-    headers = (
-        ["teacher", "proxy", "filter", "traces", "dropped"]
-        + [f"seed {seed}" for seed in seeds]
-        + ["mean", "std err"]
-    )
+    headers = ["teacher", "proxy", "traces", "dropped"]
+    for variant in VARIANTS:
+        headers += [f"{variant} seed {seed}" for seed in seeds]
+        headers.append(f"{variant} mean")
+    headers.append("filtered - unfiltered")
     lines = [
         "| " + " | ".join(headers) + " |",
         "|" + "|".join(["---"] * len(headers)) + "|",
     ]
-    keys = sorted({(r["proxy"], r["source"], r["level"]) for r in runs}, key=row_order)
-    for proxy, source, level in keys:
-        by_seed = {
-            run["seed"]: run for run in runs
-            if (run["proxy"], run["source"], run["level"]) == (proxy, source, level)
-        }
-        sample = next(iter(by_seed.values()))
-        kept = sample.get("kept")
+    keys = sorted({(r["proxy"], r["source"]) for r in runs}, key=row_order)
+    for proxy, source in keys:
+        group = [r for r in runs if (r["proxy"], r["source"]) == (proxy, source)]
+        # Only the filtered arm reads a directory that carries a filter
+        # manifest, so the drop counts for the whole row come from there. The
+        # unfiltered arm supplies the trace total when that manifest is absent.
+        counted = next((r for r in group if r.get("dropped") is not None), None)
+        unfiltered = next((r for r in group if r["variant"] == "unfiltered"), None)
+        n_before = (counted or {}).get("n_before") or (unfiltered or {}).get("kept")
         cells = [
             source.removeprefix("teacher_"),
             proxy,
-            level,
-            str(kept) if kept else MISSING,
-            dropped_cell(sample),
+            str(n_before) if n_before else MISSING,
+            dropped_cell(counted or {}),
         ]
-        cells += [
-            f"{by_seed[seed]['accuracy']:.4f}" if seed in by_seed else MISSING
-            for seed in seeds
-        ]
-        accuracies = [by_seed[seed]["accuracy"] for seed in seeds if seed in by_seed]
-        if accuracies:
-            cells.append(f"{mean(accuracies):.4f}")
-            cells.append(
-                f"{stdev(accuracies) / len(accuracies) ** 0.5:.4f}"
-                if len(accuracies) > 1
-                else MISSING
-            )
+        averages: dict[str, float | None] = {}
+        for variant in VARIANTS:
+            by_seed = {
+                run["seed"]: run["accuracy"] for run in group if run["variant"] == variant
+            }
+            cells += [
+                f"{by_seed[seed]:.4f}" if seed in by_seed else MISSING for seed in seeds
+            ]
+            accuracies = [by_seed[seed] for seed in seeds if seed in by_seed]
+            averages[variant] = mean(accuracies) if accuracies else None
+            cells.append(mean_se_cell(accuracies))
+        if averages["unfiltered"] is not None and averages["filtered"] is not None:
+            cells.append(f"{averages['filtered'] - averages['unfiltered']:+.4f}")
         else:
-            cells += [MISSING, MISSING]
+            cells.append(MISSING)
         lines.append("| " + " | ".join(cells) + " |")
     return lines
 
@@ -141,18 +160,20 @@ def missing_runs(runs: list[dict[str, Any]], seeds: list[int]) -> list[str]:
     gaps = []
     for mode in sorted({run["mode"] for run in runs}):
         in_mode = [run for run in runs if run["mode"] == mode]
-        keys = sorted({(r["proxy"], r["source"], r["level"]) for r in in_mode}, key=row_order)
-        for proxy, source, level in keys:
-            done = {
-                run["seed"] for run in in_mode
-                if (run["proxy"], run["source"], run["level"]) == (proxy, source, level)
-            }
-            for seed in seeds:
-                if seed not in done:
-                    gaps.append(
-                        f"- `{source.removeprefix('teacher_')}` ({proxy}, {level}), "
-                        f"seed {seed}, mode {mode}"
-                    )
+        keys = sorted({(r["proxy"], r["source"]) for r in in_mode}, key=row_order)
+        for proxy, source in keys:
+            for variant in VARIANTS:
+                done = {
+                    run["seed"] for run in in_mode
+                    if (run["proxy"], run["source"], run["variant"])
+                    == (proxy, source, variant)
+                }
+                for seed in seeds:
+                    if seed not in done:
+                        gaps.append(
+                            f"- `{source.removeprefix('teacher_')}` ({proxy}, {variant}), "
+                            f"seed {seed}, mode {mode}"
+                        )
     return gaps
 
 
@@ -171,10 +192,13 @@ def build_report(runs: list[dict[str, Any]], root: Path) -> str:
         "across seeds. `proxy` says whether the teacher shaped its traces "
         "against the student model (matched) or against a different model "
         "(mismatched), the latter coming from `gsm8k_output_small_mismatch`. "
-        "`traces` is how many traces survived the degeneracy filter and were "
-        "trained on, and `dropped` is how many the filter removed. Standard "
-        "error is the sample standard deviation over seeds divided by the "
-        "square root of the seed count.",
+        "`traces` is how many traces the teacher produced and `dropped` is how "
+        "many of them the degeneracy filter removed, so the filtered arm "
+        "trained on the difference. The `unfiltered` and `filtered` columns are "
+        "students that differ only in which of those two trace sets they were "
+        "trained on, at a shared seed, so the last column isolates what "
+        "filtering bought the attacker. Means carry the sample standard "
+        "deviation over seeds divided by the square root of the seed count.",
         "",
     ]
     for mode in sorted({run["mode"] for run in runs}):
