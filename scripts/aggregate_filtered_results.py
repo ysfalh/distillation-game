@@ -27,9 +27,17 @@ MISSING = "-"
 VARIANTS = ("unfiltered", "filtered")
 
 
-def variant_of(level: str) -> str:
-    """Which arm a run belongs to, read from the level directory it sits in."""
-    return "unfiltered" if level.startswith("unfiltered") else "filtered"
+def variant_of(level: str) -> str | None:
+    """Which arm a run belongs to, read from the level directory it sits in.
+
+    None for a level this report does not know, which is how results from an
+    older layout are kept out. Treating an unknown level as one of the arms
+    would let a stale run overwrite a fresh one in the same cell.
+    """
+    for variant in VARIANTS:
+        if level == variant or level.startswith(f"{variant}_"):
+            return variant
+    return None
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -52,11 +60,17 @@ def load_runs(root: Path) -> list[dict[str, Any]]:
     """Collect one record per (level, seed, source, student mode)."""
     runs = []
     manifest_cache: dict[str, dict[str, Any]] = {}
+    skipped: set[str] = set()
     for results_path in sorted(root.glob("*/seed_*/*/results.json")):
         source_dir = results_path.parent
         seed_dir = source_dir.parent
         level = seed_dir.parent.name
         seed = int(seed_dir.name.removeprefix("seed_"))
+
+        variant = variant_of(level)
+        if variant is None:
+            skipped.add(level)
+            continue
 
         manifest = _read_json(source_dir / "run_manifest.json")
         input_dir = str(manifest.get("input_dir", ""))
@@ -73,7 +87,7 @@ def load_runs(root: Path) -> list[dict[str, Any]]:
             counts = conditions.get(source.removeprefix("teacher_"), {})
             runs.append({
                 "level": level,
-                "variant": variant_of(level),
+                "variant": variant,
                 "proxy": proxy,
                 "seed": seed,
                 "source": source,
@@ -84,6 +98,12 @@ def load_runs(root: Path) -> list[dict[str, Any]]:
                 "n_before": counts.get("n_before"),
                 "student": manifest.get("student", ""),
             })
+
+    for level in sorted(skipped):
+        print(
+            f"warning: ignoring results under {root / level}, which is not an "
+            f"`unfiltered` or `filtered` arm of this report"
+        )
     return runs
 
 
